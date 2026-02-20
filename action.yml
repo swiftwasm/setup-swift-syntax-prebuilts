@@ -1,0 +1,30 @@
+name: 'Setup SwiftSyntax Prebuilts'
+description: 'Build and cache prebuilt SwiftSyntax for the current toolchain'
+
+inputs:
+  swift-syntax-version:
+    description: 'swift-syntax version to prebuild (auto-detected from Package.resolved if omitted)'
+    default: ''
+  cache-backend:
+    description: 'Cache backend: github or s3'
+    default: 'github'
+  s3-bucket:
+    description: 'S3 bucket name (when cache-backend=s3)'
+    default: ''
+  s3-prefix:
+    description: 'S3 key prefix'
+    default: 'swift-syntax-prebuilts'
+
+outputs:
+  swift-flags:
+    description: 'Flags to pass to swift build for prebuilt support'
+  prebuilts-path:
+    description: 'Filesystem path to the prebuilts directory'
+  swift-syntax-version:
+    description: 'The resolved swift-syntax version that was prebuilt'
+  cache-hit:
+    description: 'Whether the prebuilt was restored from cache'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
