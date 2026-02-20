@@ -27,35 +27,52 @@ export function sortKeysDeep(obj: any): any {
  */
 function encodeManifestPayload(manifest: object): Uint8Array {
   const sorted = sortKeysDeep(manifest);
-  // Swift's prettyPrinted uses 2-space indent and adds a trailing newline
   const json = JSON.stringify(sorted, null, 2);
   return new TextEncoder().encode(json);
+}
+
+export interface SigningCerts {
+  leafCertPath: string;
+  intermediateCertPath: string;
+  rootCertPath: string;
+  privateKeyPath: string;
+}
+
+/** Default bundled certificate paths. */
+export function defaultCertPaths(certsDir: string): SigningCerts {
+  return {
+    leafCertPath: join(certsDir, "leaf.cer"),
+    intermediateCertPath: join(certsDir, "intermediate-ca.cer"),
+    rootCertPath: join(certsDir, "root-ca.cer"),
+    privateKeyPath: join(certsDir, "leaf-key.pem"),
+  };
+}
+
+/**
+ * Import a PEM private key, handling both PKCS#1 and PKCS#8 formats.
+ */
+async function loadPrivateKey(pemPath: string) {
+  const pem = readFileSync(pemPath, "utf-8");
+  if (pem.includes("BEGIN RSA PRIVATE KEY")) {
+    // PKCS#1 → convert to PKCS#8 via Node.js crypto
+    const keyObj = createPrivateKey({ key: pem, format: "pem" });
+    const pkcs8Pem = keyObj.export({ type: "pkcs8", format: "pem" }) as string;
+    return importPKCS8(pkcs8Pem, "RS256");
+  }
+  return importPKCS8(pem, "RS256");
 }
 
 export async function signManifest(
   manifest: object,
   outputPath: string,
-  certsDir: string
+  certs: SigningCerts
 ): Promise<void> {
   // Load certificates (DER format)
-  const leaf = readFileSync(join(certsDir, "Test_rsa.cer"));
-  const intermediate = readFileSync(join(certsDir, "TestIntermediateCA.cer"));
-  const root = readFileSync(join(certsDir, "TestRootCA.cer"));
+  const leaf = readFileSync(certs.leafCertPath);
+  const intermediate = readFileSync(certs.intermediateCertPath);
+  const root = readFileSync(certs.rootCertPath);
 
-  // Load private key (may be PKCS#1 or PKCS#8 format)
-  const privateKeyPem = readFileSync(
-    join(certsDir, "Test_rsa_key.pem"),
-    "utf-8"
-  );
-  let privateKey;
-  if (privateKeyPem.includes("BEGIN RSA PRIVATE KEY")) {
-    // PKCS#1 format - convert to PKCS#8 via Node.js crypto
-    const keyObj = createPrivateKey({ key: privateKeyPem, format: "pem" });
-    const pkcs8Pem = keyObj.export({ type: "pkcs8", format: "pem" }) as string;
-    privateKey = await importPKCS8(pkcs8Pem, "RS256");
-  } else {
-    privateKey = await importPKCS8(privateKeyPem, "RS256");
-  }
+  const privateKey = await loadPrivateKey(certs.privateKeyPath);
 
   // x5c: DER certs as standard base64 (NOT base64url)
   const x5c = [leaf, intermediate, root].map((c) => c.toString("base64"));

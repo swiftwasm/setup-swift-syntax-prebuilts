@@ -1,23 +1,57 @@
 import * as core from "@actions/core";
 import * as cache from "@actions/cache";
 import { existsSync, mkdirSync, rmSync, cpSync } from "fs";
-import { join, resolve } from "path";
+import { join } from "path";
+import { tmpdir } from "os";
 import { detectToolchain } from "./toolchain";
 import { resolveSyntaxVersion } from "./resolve";
 import { buildPrebuilt } from "./build";
 import { generateMainManifest, generateV1Manifest } from "./manifest";
-import { signManifest } from "./sign";
+import { signManifest, defaultCertPaths, SigningCerts } from "./sign";
 
-const PREBUILTS_DIR = "/tmp/swift-syntax-prebuilts";
+/**
+ * Determine the base directory for prebuilt artifacts.
+ *
+ * In GitHub Actions, RUNNER_TEMP provides a per-job temporary directory
+ * that persists across steps and is cleaned up after the job completes.
+ * Outside GitHub Actions (local testing), falls back to os.tmpdir().
+ */
+function getPrebuiltsDir(): string {
+  const base = process.env.RUNNER_TEMP || tmpdir();
+  return join(base, "swift-syntax-prebuilts");
+}
+
+/**
+ * Resolve signing certificate paths. Uses user-provided paths if any
+ * input is set, otherwise falls back to the bundled default certificates.
+ */
+function resolveSigningCerts(): SigningCerts {
+  const leafInput = core.getInput("signing-leaf-cert");
+  const intermediateInput = core.getInput("signing-intermediate-cert");
+  const rootInput = core.getInput("signing-root-cert");
+  const keyInput = core.getInput("signing-private-key");
+
+  const bundledCertsDir = join(__dirname, "..", "certs");
+  const defaults = defaultCertPaths(bundledCertsDir);
+
+  return {
+    leafCertPath: leafInput || defaults.leafCertPath,
+    intermediateCertPath: intermediateInput || defaults.intermediateCertPath,
+    rootCertPath: rootInput || defaults.rootCertPath,
+    privateKeyPath: keyInput || defaults.privateKeyPath,
+  };
+}
 
 async function run() {
+  const prebuiltsDir = getPrebuiltsDir();
+  core.info(`Prebuilts directory: ${prebuiltsDir}`);
+
   // Warn if .build/prebuilts/ already exists (poisoning risk)
   if (existsSync(".build/prebuilts")) {
     core.warning(
       ".build/prebuilts/ already exists. This may cause SwiftPM to skip " +
         "our prebuilts. Run this action before any swift commands."
     );
-    // Clean it to avoid poisoning
     rmSync(".build/prebuilts", { recursive: true, force: true });
     core.info("Cleaned .build/prebuilts/ to avoid cache poisoning.");
   }
@@ -38,7 +72,10 @@ async function run() {
   }
   core.setOutput("swift-syntax-version", syntaxVersion);
 
-  // 3. Cache restore
+  // 3. Resolve signing certs
+  const signingCerts = resolveSigningCerts();
+
+  // 4. Cache restore
   const cacheKey = `swift-syntax-prebuilt-v1-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
   core.info(`Cache key: ${cacheKey}`);
 
@@ -47,7 +84,7 @@ async function run() {
 
   if (cacheBackend === "github") {
     try {
-      const restoredKey = await cache.restoreCache([PREBUILTS_DIR], cacheKey);
+      const restoredKey = await cache.restoreCache([prebuiltsDir], cacheKey);
       cacheHit = restoredKey === cacheKey;
       if (cacheHit) {
         core.info("Cache hit! Restored prebuilt artifacts.");
@@ -62,39 +99,38 @@ async function run() {
   core.setOutput("cache-hit", String(cacheHit));
 
   if (!cacheHit) {
-    // 4. Build
+    // 5. Build
     core.startGroup("Build prebuilt SwiftSyntax");
     const { checksum } = await buildPrebuilt(
       syntaxVersion,
       compilerTag,
       hostPlatform,
-      PREBUILTS_DIR
+      prebuiltsDir
     );
     core.endGroup();
 
-    // 5. Generate & sign manifests
-    const outDir = join(PREBUILTS_DIR, "swift-syntax", syntaxVersion);
+    // 6. Generate & sign manifests
+    const outDir = join(prebuiltsDir, "swift-syntax", syntaxVersion);
 
-    // Main branch manifest (nightly toolchains)
     core.startGroup("Generate and sign manifests");
-    const certsDir = join(__dirname, "..", "certs");
 
+    // Main branch manifest (nightly toolchains, SwiftPM >= 6.3)
     const mainManifest = generateMainManifest(checksum);
     const mainManifestPath = join(
       outDir,
       `${compilerTag}-${hostPlatform}.json`
     );
-    await signManifest(mainManifest, mainManifestPath, certsDir);
+    await signManifest(mainManifest, mainManifestPath, signingCerts);
     core.info(`Main manifest: ${mainManifestPath}`);
 
-    // V1 manifest (6.1/6.2 SwiftPM)
+    // V1 manifest (SwiftPM 6.1/6.2)
     const v1Manifest = generateV1Manifest(checksum, hostPlatform);
     const v1ManifestPath = join(outDir, `${compilerTag}-manifest.json`);
-    await signManifest(v1Manifest, v1ManifestPath, certsDir);
+    await signManifest(v1Manifest, v1ManifestPath, signingCerts);
     core.info(`V1 manifest: ${v1ManifestPath}`);
 
-    // Also generate the v1 artifact name (symlink or copy)
-    // v1 artifact format: {compilerTag}-MacroSupport-{platform}.tar.gz
+    // V1 uses different artifact naming: {tag}-{lib}-{platform}
+    // Main uses: {tag}-{platform}-{lib}
     const mainArtifactName = `${compilerTag}-${hostPlatform}-MacroSupport.tar.gz`;
     const v1ArtifactName = `${compilerTag}-MacroSupport-${hostPlatform}.tar.gz`;
     const mainArtifactPath = join(outDir, mainArtifactName);
@@ -106,15 +142,15 @@ async function run() {
 
     core.endGroup();
 
-    // Copy root cert into prebuilts dir for self-contained distribution
-    const certsDest = join(PREBUILTS_DIR, ".certs");
+    // Copy root cert into prebuilts dir for self-contained output
+    const certsDest = join(prebuiltsDir, ".certs");
     mkdirSync(certsDest, { recursive: true });
-    cpSync(join(certsDir, "TestRootCA.cer"), join(certsDest, "TestRootCA.cer"));
+    cpSync(signingCerts.rootCertPath, join(certsDest, "root-ca.cer"));
 
-    // 6. Save cache
+    // 7. Save cache
     if (cacheBackend === "github") {
       try {
-        await cache.saveCache([PREBUILTS_DIR], cacheKey);
+        await cache.saveCache([prebuiltsDir], cacheKey);
         core.info("Saved prebuilt artifacts to cache.");
       } catch (e: any) {
         core.warning(`Cache save failed: ${e.message}`);
@@ -122,24 +158,23 @@ async function run() {
     }
   }
 
-  // 7. Export outputs
-  const rootCert = join(PREBUILTS_DIR, ".certs", "TestRootCA.cer");
-  // If cert doesn't exist in prebuilts (e.g. cache restored without it), use bundled one
+  // 8. Export outputs
+  const rootCert = join(prebuiltsDir, ".certs", "root-ca.cer");
   const certPath = existsSync(rootCert)
     ? rootCert
-    : join(__dirname, "..", "certs", "TestRootCA.cer");
+    : signingCerts.rootCertPath;
 
   const flags = [
-    `--experimental-prebuilts-download-url`,
-    `file://${PREBUILTS_DIR}`,
-    `--experimental-prebuilts-root-cert`,
+    "--experimental-prebuilts-download-url",
+    `file://${prebuiltsDir}`,
+    "--experimental-prebuilts-root-cert",
     certPath,
   ].join(" ");
 
   core.setOutput("swift-flags", flags);
-  core.setOutput("prebuilts-path", PREBUILTS_DIR);
+  core.setOutput("prebuilts-path", prebuiltsDir);
 
-  core.info(`\n✅ SwiftSyntax prebuilts ready!`);
+  core.info(`\n\u2705 SwiftSyntax prebuilts ready!`);
   core.info(`   Version: ${syntaxVersion}`);
   core.info(`   Flags: ${flags}`);
 }

@@ -14,6 +14,18 @@ inputs:
   s3-prefix:
     description: 'S3 key prefix'
     default: 'swift-syntax-prebuilts'
+  signing-leaf-cert:
+    description: 'Path to leaf certificate (DER format) for manifest signing. Uses bundled cert if omitted.'
+    default: ''
+  signing-intermediate-cert:
+    description: 'Path to intermediate CA certificate (DER format). Uses bundled cert if omitted.'
+    default: ''
+  signing-root-cert:
+    description: 'Path to root CA certificate (DER format). Uses bundled cert if omitted.'
+    default: ''
+  signing-private-key:
+    description: 'Path to RSA private key (PEM format) for manifest signing. Uses bundled key if omitted.'
+    default: ''
 
 outputs:
   swift-flags:

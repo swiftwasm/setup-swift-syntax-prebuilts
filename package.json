@@ -5,7 +5,10 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "ncc build src/index.ts -o dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/resolve.test.ts tests/manifest.test.ts tests/sign.test.ts tests/x509.test.ts tests/toolchain.test.ts",
+    "test:e2e": "tsx --test tests/e2e.test.ts",
+    "test:all": "npm test && npm run test:e2e"
   },
   "license": "MIT",
   "dependencies": {
@@ -18,6 +21,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@vercel/ncc": "^0.38.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.5.0"
   }
 }

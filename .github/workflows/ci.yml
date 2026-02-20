@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  typecheck-and-unit-tests:
+    name: Typecheck & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Verify dist/ is up to date
+        run: |
+          npm run build
+          if ! git diff --quiet dist/; then
+            echo "::error::dist/index.js is out of date. Run 'npm run build' and commit."
+            git diff --stat dist/
+            exit 1
+          fi
+
+  e2e-test:
+    name: E2E Test (${{ matrix.swift-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        swift-version:
+          - '6.1'
+          - 'nightly-main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: swiftwasm/setup-swiftwasm@v2
+        if: matrix.swift-version == 'nightly-main'
+        with:
+          swift-version: 'wasm-DEVELOPMENT-SNAPSHOT-2024-12-27-a'
+
+      - uses: swift-actions/setup-swift@v2
+        if: matrix.swift-version != 'nightly-main'
+        with:
+          swift-version: ${{ matrix.swift-version }}
+
+      - run: npm ci
+
+      - name: E2E tests
+        run: npm run test:e2e
+        timeout-minutes: 15
+
+  action-integration:
+    name: Action Integration Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.1'
+
+      - name: Create test project
+        run: |
+          mkdir -p /tmp/test-project/Sources/TestLib
+          cat > /tmp/test-project/Package.swift << 'EOF'
+          // swift-tools-version: 6.0
+          import PackageDescription
+          let package = Package(
+              name: "TestProject",
+              dependencies: [
+                  .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.1"),
+              ],
+              targets: [
+                  .target(name: "TestLib"),
+              ]
+          )
+          EOF
+          echo 'public func hello() -> String { "Hello" }' > /tmp/test-project/Sources/TestLib/Lib.swift
+
+      - name: Setup prebuilts
+        id: prebuilts
+        uses: ./
+        with:
+          swift-syntax-version: '600.0.1'
+
+      - name: Verify outputs
+        run: |
+          echo "swift-flags: ${{ steps.prebuilts.outputs.swift-flags }}"
+          echo "prebuilts-path: ${{ steps.prebuilts.outputs.prebuilts-path }}"
+          echo "swift-syntax-version: ${{ steps.prebuilts.outputs.swift-syntax-version }}"
+          echo "cache-hit: ${{ steps.prebuilts.outputs.cache-hit }}"
+          test -n "${{ steps.prebuilts.outputs.swift-flags }}"
+          test -n "${{ steps.prebuilts.outputs.prebuilts-path }}"
+          test "${{ steps.prebuilts.outputs.swift-syntax-version }}" = "600.0.1"
+
+      - name: Build with prebuilts
+        working-directory: /tmp/test-project
+        run: swift build ${{ steps.prebuilts.outputs.swift-flags }}

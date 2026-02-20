@@ -12,7 +12,7 @@ This action:
 1. Detects your Swift compiler tag and host platform
 2. Resolves the swift-syntax version from `Package.resolved`
 3. Restores from GitHub Actions cache (or builds on miss)
-4. Signs the manifest with SwiftPM-compatible JWS certificates
+4. Signs the manifest with JWS-compatible certificates
 5. Exports flags for `swift build` to use local prebuilts
 
 ## Usage
@@ -40,6 +40,18 @@ jobs:
           swift-syntax-version: '600.0.1'
 ```
 
+### With custom signing certificates
+
+```yaml
+      - uses: swiftwasm/setup-swiftsyntax-prebuilts@v1
+        id: prebuilts
+        with:
+          signing-leaf-cert: path/to/leaf.cer
+          signing-intermediate-cert: path/to/intermediate-ca.cer
+          signing-root-cert: path/to/root-ca.cer
+          signing-private-key: path/to/leaf-key.pem
+```
+
 ## Inputs
 
 | Input | Required | Default | Description |
@@ -48,6 +60,10 @@ jobs:
 | `cache-backend` | No | `github` | `github` or `s3` |
 | `s3-bucket` | No | | S3 bucket name (when `cache-backend=s3`) |
 | `s3-prefix` | No | `swift-syntax-prebuilts` | S3 key prefix |
+| `signing-leaf-cert` | No | *(bundled)* | Path to leaf certificate (DER format) for manifest signing |
+| `signing-intermediate-cert` | No | *(bundled)* | Path to intermediate CA certificate (DER format) |
+| `signing-root-cert` | No | *(bundled)* | Path to root CA certificate (DER format) |
+| `signing-private-key` | No | *(bundled)* | Path to RSA private key (PEM format) for signing |
 
 ## Outputs
 
@@ -82,7 +98,13 @@ The action generates manifests for both SwiftPM versions:
 
 ### Signing
 
-Manifests are signed using JWS (RFC 7515) with SwiftPM's test certificates. The `--experimental-prebuilts-root-cert` flag tells SwiftPM to trust our test CA.
+Manifests are signed using JWS (RFC 7515, RS256). The action ships its own self-signed certificate chain by default. You can provide your own certificates via the `signing-*` inputs.
+
+The `--experimental-prebuilts-root-cert` flag tells SwiftPM to trust the signing CA.
+
+### Prebuilts Directory
+
+In GitHub Actions, prebuilts are stored under `$RUNNER_TEMP/swift-syntax-prebuilts/` (a per-job temp directory that persists across steps). Outside GitHub Actions, falls back to `os.tmpdir()`.
 
 ## Important Notes
 
@@ -94,8 +116,11 @@ Manifests are signed using JWS (RFC 7515) with SwiftPM's test certificates. The 
 
 ```bash
 npm install
-npm run build      # Compile with ncc
-npm run typecheck  # Type-check only
+npm run build        # Compile with ncc
+npm run typecheck    # Type-check only
+npm test             # Unit tests
+npm run test:e2e     # End-to-end test (requires Swift toolchain)
+npm run test:all     # Both
 ```
 
 The compiled `dist/index.js` must be committed to the repository.

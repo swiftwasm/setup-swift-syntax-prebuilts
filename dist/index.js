@@ -60287,18 +60287,48 @@ const core = __importStar(__nccwpck_require__(37484));
 const cache = __importStar(__nccwpck_require__(5116));
 const fs_1 = __nccwpck_require__(79896);
 const path_1 = __nccwpck_require__(16928);
+const os_1 = __nccwpck_require__(70857);
 const toolchain_1 = __nccwpck_require__(58476);
 const resolve_1 = __nccwpck_require__(21259);
 const build_1 = __nccwpck_require__(34323);
 const manifest_1 = __nccwpck_require__(25546);
 const sign_1 = __nccwpck_require__(12694);
-const PREBUILTS_DIR = "/tmp/swift-syntax-prebuilts";
+/**
+ * Determine the base directory for prebuilt artifacts.
+ *
+ * In GitHub Actions, RUNNER_TEMP provides a per-job temporary directory
+ * that persists across steps and is cleaned up after the job completes.
+ * Outside GitHub Actions (local testing), falls back to os.tmpdir().
+ */
+function getPrebuiltsDir() {
+    const base = process.env.RUNNER_TEMP || (0, os_1.tmpdir)();
+    return (0, path_1.join)(base, "swift-syntax-prebuilts");
+}
+/**
+ * Resolve signing certificate paths. Uses user-provided paths if any
+ * input is set, otherwise falls back to the bundled default certificates.
+ */
+function resolveSigningCerts() {
+    const leafInput = core.getInput("signing-leaf-cert");
+    const intermediateInput = core.getInput("signing-intermediate-cert");
+    const rootInput = core.getInput("signing-root-cert");
+    const keyInput = core.getInput("signing-private-key");
+    const bundledCertsDir = (0, path_1.join)(__dirname, "..", "certs");
+    const defaults = (0, sign_1.defaultCertPaths)(bundledCertsDir);
+    return {
+        leafCertPath: leafInput || defaults.leafCertPath,
+        intermediateCertPath: intermediateInput || defaults.intermediateCertPath,
+        rootCertPath: rootInput || defaults.rootCertPath,
+        privateKeyPath: keyInput || defaults.privateKeyPath,
+    };
+}
 async function run() {
+    const prebuiltsDir = getPrebuiltsDir();
+    core.info(`Prebuilts directory: ${prebuiltsDir}`);
     // Warn if .build/prebuilts/ already exists (poisoning risk)
     if ((0, fs_1.existsSync)(".build/prebuilts")) {
         core.warning(".build/prebuilts/ already exists. This may cause SwiftPM to skip " +
             "our prebuilts. Run this action before any swift commands.");
-        // Clean it to avoid poisoning
         (0, fs_1.rmSync)(".build/prebuilts", { recursive: true, force: true });
         core.info("Cleaned .build/prebuilts/ to avoid cache poisoning.");
     }
@@ -60316,14 +60346,16 @@ async function run() {
         return;
     }
     core.setOutput("swift-syntax-version", syntaxVersion);
-    // 3. Cache restore
+    // 3. Resolve signing certs
+    const signingCerts = resolveSigningCerts();
+    // 4. Cache restore
     const cacheKey = `swift-syntax-prebuilt-v1-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
     core.info(`Cache key: ${cacheKey}`);
     let cacheHit = false;
     const cacheBackend = core.getInput("cache-backend") || "github";
     if (cacheBackend === "github") {
         try {
-            const restoredKey = await cache.restoreCache([PREBUILTS_DIR], cacheKey);
+            const restoredKey = await cache.restoreCache([prebuiltsDir], cacheKey);
             cacheHit = restoredKey === cacheKey;
             if (cacheHit) {
                 core.info("Cache hit! Restored prebuilt artifacts.");
@@ -60338,26 +60370,25 @@ async function run() {
     }
     core.setOutput("cache-hit", String(cacheHit));
     if (!cacheHit) {
-        // 4. Build
+        // 5. Build
         core.startGroup("Build prebuilt SwiftSyntax");
-        const { checksum } = await (0, build_1.buildPrebuilt)(syntaxVersion, compilerTag, hostPlatform, PREBUILTS_DIR);
+        const { checksum } = await (0, build_1.buildPrebuilt)(syntaxVersion, compilerTag, hostPlatform, prebuiltsDir);
         core.endGroup();
-        // 5. Generate & sign manifests
-        const outDir = (0, path_1.join)(PREBUILTS_DIR, "swift-syntax", syntaxVersion);
-        // Main branch manifest (nightly toolchains)
+        // 6. Generate & sign manifests
+        const outDir = (0, path_1.join)(prebuiltsDir, "swift-syntax", syntaxVersion);
         core.startGroup("Generate and sign manifests");
-        const certsDir = (0, path_1.join)(__dirname, "..", "certs");
+        // Main branch manifest (nightly toolchains, SwiftPM >= 6.3)
         const mainManifest = (0, manifest_1.generateMainManifest)(checksum);
         const mainManifestPath = (0, path_1.join)(outDir, `${compilerTag}-${hostPlatform}.json`);
-        await (0, sign_1.signManifest)(mainManifest, mainManifestPath, certsDir);
+        await (0, sign_1.signManifest)(mainManifest, mainManifestPath, signingCerts);
         core.info(`Main manifest: ${mainManifestPath}`);
-        // V1 manifest (6.1/6.2 SwiftPM)
+        // V1 manifest (SwiftPM 6.1/6.2)
         const v1Manifest = (0, manifest_1.generateV1Manifest)(checksum, hostPlatform);
         const v1ManifestPath = (0, path_1.join)(outDir, `${compilerTag}-manifest.json`);
-        await (0, sign_1.signManifest)(v1Manifest, v1ManifestPath, certsDir);
+        await (0, sign_1.signManifest)(v1Manifest, v1ManifestPath, signingCerts);
         core.info(`V1 manifest: ${v1ManifestPath}`);
-        // Also generate the v1 artifact name (symlink or copy)
-        // v1 artifact format: {compilerTag}-MacroSupport-{platform}.tar.gz
+        // V1 uses different artifact naming: {tag}-{lib}-{platform}
+        // Main uses: {tag}-{platform}-{lib}
         const mainArtifactName = `${compilerTag}-${hostPlatform}-MacroSupport.tar.gz`;
         const v1ArtifactName = `${compilerTag}-MacroSupport-${hostPlatform}.tar.gz`;
         const mainArtifactPath = (0, path_1.join)(outDir, mainArtifactName);
@@ -60367,14 +60398,14 @@ async function run() {
             core.info(`V1 artifact (copy): ${v1ArtifactPath}`);
         }
         core.endGroup();
-        // Copy root cert into prebuilts dir for self-contained distribution
-        const certsDest = (0, path_1.join)(PREBUILTS_DIR, ".certs");
+        // Copy root cert into prebuilts dir for self-contained output
+        const certsDest = (0, path_1.join)(prebuiltsDir, ".certs");
         (0, fs_1.mkdirSync)(certsDest, { recursive: true });
-        (0, fs_1.cpSync)((0, path_1.join)(certsDir, "TestRootCA.cer"), (0, path_1.join)(certsDest, "TestRootCA.cer"));
-        // 6. Save cache
+        (0, fs_1.cpSync)(signingCerts.rootCertPath, (0, path_1.join)(certsDest, "root-ca.cer"));
+        // 7. Save cache
         if (cacheBackend === "github") {
             try {
-                await cache.saveCache([PREBUILTS_DIR], cacheKey);
+                await cache.saveCache([prebuiltsDir], cacheKey);
                 core.info("Saved prebuilt artifacts to cache.");
             }
             catch (e) {
@@ -60382,21 +60413,20 @@ async function run() {
             }
         }
     }
-    // 7. Export outputs
-    const rootCert = (0, path_1.join)(PREBUILTS_DIR, ".certs", "TestRootCA.cer");
-    // If cert doesn't exist in prebuilts (e.g. cache restored without it), use bundled one
+    // 8. Export outputs
+    const rootCert = (0, path_1.join)(prebuiltsDir, ".certs", "root-ca.cer");
     const certPath = (0, fs_1.existsSync)(rootCert)
         ? rootCert
-        : (0, path_1.join)(__dirname, "..", "certs", "TestRootCA.cer");
+        : signingCerts.rootCertPath;
     const flags = [
-        `--experimental-prebuilts-download-url`,
-        `file://${PREBUILTS_DIR}`,
-        `--experimental-prebuilts-root-cert`,
+        "--experimental-prebuilts-download-url",
+        `file://${prebuiltsDir}`,
+        "--experimental-prebuilts-root-cert",
         certPath,
     ].join(" ");
     core.setOutput("swift-flags", flags);
-    core.setOutput("prebuilts-path", PREBUILTS_DIR);
-    core.info(`\n✅ SwiftSyntax prebuilts ready!`);
+    core.setOutput("prebuilts-path", prebuiltsDir);
+    core.info(`\n\u2705 SwiftSyntax prebuilts ready!`);
     core.info(`   Version: ${syntaxVersion}`);
     core.info(`   Flags: ${flags}`);
 }
@@ -60585,6 +60615,7 @@ async function resolveSyntaxVersion(inputVersion) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.sortKeysDeep = sortKeysDeep;
+exports.defaultCertPaths = defaultCertPaths;
 exports.signManifest = signManifest;
 const jose_1 = __nccwpck_require__(21608);
 const fs_1 = __nccwpck_require__(79896);
@@ -60614,27 +60645,37 @@ function sortKeysDeep(obj) {
  */
 function encodeManifestPayload(manifest) {
     const sorted = sortKeysDeep(manifest);
-    // Swift's prettyPrinted uses 2-space indent and adds a trailing newline
     const json = JSON.stringify(sorted, null, 2);
     return new TextEncoder().encode(json);
 }
-async function signManifest(manifest, outputPath, certsDir) {
-    // Load certificates (DER format)
-    const leaf = (0, fs_1.readFileSync)((0, path_1.join)(certsDir, "Test_rsa.cer"));
-    const intermediate = (0, fs_1.readFileSync)((0, path_1.join)(certsDir, "TestIntermediateCA.cer"));
-    const root = (0, fs_1.readFileSync)((0, path_1.join)(certsDir, "TestRootCA.cer"));
-    // Load private key (may be PKCS#1 or PKCS#8 format)
-    const privateKeyPem = (0, fs_1.readFileSync)((0, path_1.join)(certsDir, "Test_rsa_key.pem"), "utf-8");
-    let privateKey;
-    if (privateKeyPem.includes("BEGIN RSA PRIVATE KEY")) {
-        // PKCS#1 format - convert to PKCS#8 via Node.js crypto
-        const keyObj = (0, crypto_1.createPrivateKey)({ key: privateKeyPem, format: "pem" });
+/** Default bundled certificate paths. */
+function defaultCertPaths(certsDir) {
+    return {
+        leafCertPath: (0, path_1.join)(certsDir, "leaf.cer"),
+        intermediateCertPath: (0, path_1.join)(certsDir, "intermediate-ca.cer"),
+        rootCertPath: (0, path_1.join)(certsDir, "root-ca.cer"),
+        privateKeyPath: (0, path_1.join)(certsDir, "leaf-key.pem"),
+    };
+}
+/**
+ * Import a PEM private key, handling both PKCS#1 and PKCS#8 formats.
+ */
+async function loadPrivateKey(pemPath) {
+    const pem = (0, fs_1.readFileSync)(pemPath, "utf-8");
+    if (pem.includes("BEGIN RSA PRIVATE KEY")) {
+        // PKCS#1 → convert to PKCS#8 via Node.js crypto
+        const keyObj = (0, crypto_1.createPrivateKey)({ key: pem, format: "pem" });
         const pkcs8Pem = keyObj.export({ type: "pkcs8", format: "pem" });
-        privateKey = await (0, jose_1.importPKCS8)(pkcs8Pem, "RS256");
+        return (0, jose_1.importPKCS8)(pkcs8Pem, "RS256");
     }
-    else {
-        privateKey = await (0, jose_1.importPKCS8)(privateKeyPem, "RS256");
-    }
+    return (0, jose_1.importPKCS8)(pem, "RS256");
+}
+async function signManifest(manifest, outputPath, certs) {
+    // Load certificates (DER format)
+    const leaf = (0, fs_1.readFileSync)(certs.leafCertPath);
+    const intermediate = (0, fs_1.readFileSync)(certs.intermediateCertPath);
+    const root = (0, fs_1.readFileSync)(certs.rootCertPath);
+    const privateKey = await loadPrivateKey(certs.privateKeyPath);
     // x5c: DER certs as standard base64 (NOT base64url)
     const x5c = [leaf, intermediate, root].map((c) => c.toString("base64"));
     // Payload must match Swift's JSONEncoder output exactly
