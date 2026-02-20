@@ -60432,6 +60432,7 @@ async function run() {
         ? rootCert
         : signingCerts.rootCertPath;
     const flags = [
+        "--enable-experimental-prebuilts",
         "--experimental-prebuilts-download-url",
         `file://${prebuiltsDir}`,
         "--experimental-prebuilts-root-cert",
