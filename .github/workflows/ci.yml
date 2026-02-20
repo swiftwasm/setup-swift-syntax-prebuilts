@@ -89,8 +89,7 @@ jobs:
               ]
           )
           EOF
-          echo 'import SwiftSyntax
-public func hello() -> String { "Hello" }' > /tmp/test-project/Sources/TestLib/Lib.swift
+          printf 'import SwiftSyntax\npublic func hello() -> String { "Hello" }\n' > /tmp/test-project/Sources/TestLib/Lib.swift
           # Resolve so Package.resolved exists at a non-cwd path
           cd /tmp/test-project && swift package resolve
 
