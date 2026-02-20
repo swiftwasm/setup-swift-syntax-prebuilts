@@ -60351,7 +60351,7 @@ async function run() {
     // 3. Resolve signing certs
     const signingCerts = resolveSigningCerts();
     // 4. Cache restore
-    const cacheKey = `swift-syntax-prebuilt-v2-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
+    const cacheKey = `swift-syntax-prebuilt-v3-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
     core.info(`Cache key: ${cacheKey}`);
     let cacheHit = false;
     const cacheBackend = core.getInput("cache-backend") || "github";
