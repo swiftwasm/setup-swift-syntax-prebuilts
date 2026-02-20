@@ -60338,7 +60338,8 @@ async function run() {
     core.info(`Host platform: ${hostPlatform}`);
     // 2. Resolve swift-syntax version
     const inputVersion = core.getInput("swift-syntax-version");
-    const syntaxVersion = await (0, resolve_1.resolveSyntaxVersion)(inputVersion);
+    const packageResolvedPath = core.getInput("package-resolved-path");
+    const syntaxVersion = await (0, resolve_1.resolveSyntaxVersion)(inputVersion, packageResolvedPath || undefined);
     if (!syntaxVersion) {
         core.info("No swift-syntax dependency found. Skipping prebuilt setup.");
         core.setOutput("swift-flags", "");
@@ -60554,19 +60555,33 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.resolveSyntaxVersion = resolveSyntaxVersion;
 const fs_1 = __nccwpck_require__(79896);
+const path_1 = __nccwpck_require__(16928);
 const exec_1 = __nccwpck_require__(95236);
 const core = __importStar(__nccwpck_require__(37484));
-async function resolveSyntaxVersion(inputVersion) {
+/**
+ * Resolve the swift-syntax version to prebuild.
+ *
+ * @param inputVersion  Explicit version string (returned as-is if non-empty).
+ * @param packageResolvedPath  Optional path to Package.resolved. When empty,
+ *   falls back to `Package.resolved` in cwd. If the file doesn't exist and no
+ *   explicit path was given, runs `swift package resolve` to generate it.
+ */
+async function resolveSyntaxVersion(inputVersion, packageResolvedPath) {
     if (inputVersion) {
         core.info(`Using explicit swift-syntax version: ${inputVersion}`);
         return inputVersion;
     }
-    const resolvedPath = "Package.resolved";
-    let didResolve = false;
+    const resolvedPath = packageResolvedPath
+        ? (0, path_1.resolve)(packageResolvedPath)
+        : "Package.resolved";
     if (!(0, fs_1.existsSync)(resolvedPath)) {
+        if (packageResolvedPath) {
+            // User gave an explicit path that doesn't exist — don't guess.
+            core.warning(`Specified Package.resolved not found: ${resolvedPath}`);
+            return null;
+        }
         core.info("No Package.resolved found. Running swift package resolve...");
         await (0, exec_1.exec)("swift", ["package", "resolve"]);
-        didResolve = true;
         // Clean poisoned prebuilt cache from default download.swift.org attempt
         if ((0, fs_1.existsSync)(".build/prebuilts")) {
             core.info("Cleaning .build/prebuilts/ to avoid cache poisoning");
@@ -60578,9 +60593,7 @@ async function resolveSyntaxVersion(inputVersion) {
         return null;
     }
     const resolved = JSON.parse((0, fs_1.readFileSync)(resolvedPath, "utf-8"));
-    // Handle both v2/v3 Package.resolved format
-    // v2/v3: { "pins": [...], "version": 2|3 }
-    // v1 (legacy): { "object": { "pins": [...] }, "version": 1 }
+    // Handle v1/v2/v3 Package.resolved formats
     let pins;
     if (resolved.version === 1) {
         pins = resolved.object?.pins ?? [];
@@ -60595,7 +60608,6 @@ async function resolveSyntaxVersion(inputVersion) {
         core.info("swift-syntax not found in Package.resolved -- nothing to do");
         return null;
     }
-    // v2/v3: state.version, v1: state.version
     const version = pin.state?.version;
     if (!version) {
         core.warning("swift-syntax pin found but no version in state");

@@ -40,6 +40,15 @@ jobs:
           swift-syntax-version: '600.0.1'
 ```
 
+### With non-cwd project
+
+```yaml
+      - uses: swiftwasm/setup-swiftsyntax-prebuilts@v1
+        id: prebuilts
+        with:
+          package-resolved-path: my-project/Package.resolved
+```
+
 ### With custom signing certificates
 
 ```yaml
@@ -57,6 +66,7 @@ jobs:
 | Input | Required | Default | Description |
 |---|---|---|---|
 | `swift-syntax-version` | No | *(auto-detect)* | swift-syntax version to prebuild. Auto-detected from `Package.resolved` if omitted. |
+| `package-resolved-path` | No | `Package.resolved` | Path to `Package.resolved` for version auto-detection. Useful when the project is checked out in a non-cwd directory. |
 | `cache-backend` | No | `github` | `github` or `s3` |
 | `s3-bucket` | No | | S3 bucket name (when `cache-backend=s3`) |
 | `s3-prefix` | No | `swift-syntax-prebuilts` | S3 key prefix |

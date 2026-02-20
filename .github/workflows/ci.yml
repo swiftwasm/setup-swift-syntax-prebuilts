@@ -95,12 +95,14 @@ jobs:
           )
           EOF
           echo 'public func hello() -> String { "Hello" }' > /tmp/test-project/Sources/TestLib/Lib.swift
+          # Resolve so Package.resolved exists at a non-cwd path
+          cd /tmp/test-project && swift package resolve
 
-      - name: Setup prebuilts
+      - name: Setup prebuilts (auto-detect from non-cwd Package.resolved)
         id: prebuilts
         uses: ./
         with:
-          swift-syntax-version: '600.0.1'
+          package-resolved-path: /tmp/test-project/Package.resolved
 
       - name: Verify outputs
         run: |

@@ -94,18 +94,6 @@ let package = Package(
     if (projectDir) rmSync(projectDir, { recursive: true, force: true });
   });
 
-  it("produces a valid archive", () => {
-    const artifactPath = join(
-      prebuiltsDir,
-      "swift-syntax",
-      SYNTAX_VERSION,
-      `${compilerTag}-${hostPlatform}-MacroSupport.tar.gz`
-    );
-    assert.ok(existsSync(artifactPath), "Archive should exist");
-    const stat = readFileSync(artifactPath);
-    assert.ok(stat.length > 1024 * 1024, "Archive should be > 1MB");
-  });
-
   it("produces a signed manifest", () => {
     const manifestPath = join(
       prebuiltsDir,

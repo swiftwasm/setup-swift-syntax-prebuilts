@@ -7,7 +7,8 @@ import { resolveSyntaxVersion } from "../src/resolve";
 
 const fixturesDir = join(__dirname, "..", "fixtures");
 
-// resolveSyntaxVersion reads Package.resolved from cwd, so we chdir into a temp dir
+// resolveSyntaxVersion reads Package.resolved from cwd when no path is given,
+// so we chdir into a temp dir for those tests.
 let origCwd: string;
 let tempDir: string;
 
@@ -50,5 +51,48 @@ describe("resolveSyntaxVersion", () => {
     cpSync(join(fixturesDir, "Package.resolved.no-syntax"), join(tempDir, "Package.resolved"));
     const result = await resolveSyntaxVersion("");
     assert.equal(result, null);
+  });
+
+  // --- packageResolvedPath parameter ---
+
+  it("reads from explicit packageResolvedPath", async () => {
+    // File is NOT in cwd — only reachable via the explicit path
+    const result = await resolveSyntaxVersion(
+      "",
+      join(fixturesDir, "Package.resolved.v3")
+    );
+    assert.equal(result, "600.0.1");
+  });
+
+  it("reads v1 from explicit packageResolvedPath", async () => {
+    const result = await resolveSyntaxVersion(
+      "",
+      join(fixturesDir, "Package.resolved.v1")
+    );
+    assert.equal(result, "600.0.1");
+  });
+
+  it("returns null when explicit path has no swift-syntax", async () => {
+    const result = await resolveSyntaxVersion(
+      "",
+      join(fixturesDir, "Package.resolved.no-syntax")
+    );
+    assert.equal(result, null);
+  });
+
+  it("returns null when explicit path does not exist", async () => {
+    const result = await resolveSyntaxVersion(
+      "",
+      "/tmp/nonexistent/Package.resolved"
+    );
+    assert.equal(result, null);
+  });
+
+  it("explicit version takes priority over packageResolvedPath", async () => {
+    const result = await resolveSyntaxVersion(
+      "510.0.3",
+      join(fixturesDir, "Package.resolved.v3")
+    );
+    assert.equal(result, "510.0.3");
   });
 });

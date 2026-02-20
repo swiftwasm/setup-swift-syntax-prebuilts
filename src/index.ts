@@ -63,7 +63,11 @@ async function run() {
 
   // 2. Resolve swift-syntax version
   const inputVersion = core.getInput("swift-syntax-version");
-  const syntaxVersion = await resolveSyntaxVersion(inputVersion);
+  const packageResolvedPath = core.getInput("package-resolved-path");
+  const syntaxVersion = await resolveSyntaxVersion(
+    inputVersion,
+    packageResolvedPath || undefined
+  );
   if (!syntaxVersion) {
     core.info("No swift-syntax dependency found. Skipping prebuilt setup.");
     core.setOutput("swift-flags", "");

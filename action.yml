@@ -5,6 +5,9 @@ inputs:
   swift-syntax-version:
     description: 'swift-syntax version to prebuild (auto-detected from Package.resolved if omitted)'
     default: ''
+  package-resolved-path:
+    description: 'Path to Package.resolved for auto-detecting swift-syntax version. Defaults to Package.resolved in the current working directory.'
+    default: ''
   cache-backend:
     description: 'Cache backend: github or s3'
     default: 'github'
