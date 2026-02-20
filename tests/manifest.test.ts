@@ -51,6 +51,12 @@ describe("generateV1Manifest", () => {
     const main = generateMainManifest(CHECKSUM);
     const v1 = generateV1Manifest(CHECKSUM, "ubuntu_noble_x86_64");
     assert.deepEqual(main.libraries[0].products, v1.libraries[0].products);
-    assert.deepEqual(main.libraries[0].includePath, v1.libraries[0].includePath);
+  });
+
+  it("has cModules instead of includePath", () => {
+    const v1 = generateV1Manifest(CHECKSUM, "ubuntu_noble_x86_64");
+    assert.ok(v1.libraries[0].cModules.length > 0);
+    assert.ok(v1.libraries[0].cModules.includes("_SwiftSyntaxCShims"));
+    assert.equal((v1.libraries[0] as any).includePath, undefined);
   });
 });

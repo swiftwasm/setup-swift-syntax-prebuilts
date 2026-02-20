@@ -25,10 +25,16 @@ const PRODUCTS = [
   "_SwiftLibraryPluginProvider",
 ];
 
-// Include paths for C shim headers
+// Include paths for C shim headers (main branch format: relative paths)
 const INCLUDE_PATHS = [
   "Sources/_SwiftSyntaxCShims/include",
   "Sources/_SwiftLibraryPluginProviderCShims/include",
+];
+
+// C module target names (v1/6.1 format: target names, not paths)
+const C_MODULES = [
+  "_SwiftSyntaxCShims",
+  "_SwiftLibraryPluginProviderCShims",
 ];
 
 export interface MainBranchManifest {
@@ -46,7 +52,7 @@ export interface V1Manifest {
       checksum: string;
       platform: string;
     }>;
-    includePath: string[];
+    cModules: string[];
     name: string;
     products: string[];
   }>;
@@ -85,7 +91,7 @@ export function generateV1Manifest(
             platform: hostPlatform,
           },
         ],
-        includePath: INCLUDE_PATHS,
+        cModules: C_MODULES,
         name: "MacroSupport",
         products: PRODUCTS,
       },

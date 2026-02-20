@@ -113,11 +113,4 @@ jobs:
 
       - name: Build with prebuilts
         working-directory: /tmp/test-project
-        run: |
-          echo "=== .build/prebuilts contents ==="
-          find .build/prebuilts -type f 2>/dev/null || echo "(empty or missing)"
-          echo "=== Prebuilts dir contents ==="
-          find ${{ steps.prebuilts.outputs.prebuilts-path }} -type f 2>/dev/null | head -20
-          echo "=== Building ==="
-          swift build -v ${{ steps.prebuilts.outputs.swift-flags }} 2>&1 | head -50
-          swift build ${{ steps.prebuilts.outputs.swift-flags }}
+        run: swift build ${{ steps.prebuilts.outputs.swift-flags }}

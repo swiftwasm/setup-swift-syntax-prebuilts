@@ -18,7 +18,7 @@ export interface V1Manifest {
             checksum: string;
             platform: string;
         }>;
-        includePath: string[];
+        cModules: string[];
         name: string;
         products: string[];
     }>;
