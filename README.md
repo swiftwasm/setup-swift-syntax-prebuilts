@@ -103,8 +103,10 @@ This ensures prebuilts are never reused across incompatible toolchains.
 ### Manifest Formats
 
 The action generates manifests for both SwiftPM versions:
-- **Main branch** (nightly ≥ 6.3-dev): per-platform manifest files
-- **6.1/6.2** (stable releases): v1 format with per-platform artifact entries
+- **Main branch** (nightly ≥ 6.3-dev): per-platform manifest files — fully tested and working
+- **6.1/6.2** (stable releases): v1 format with per-platform artifact entries — manifests are generated but prebuilt consumption may not work due to JWS signature byte-matching requirements in SwiftPM 6.1/6.2
+
+> **Note:** The primary target audience is nightly toolchain users, where prebuilts provide the most value (no official prebuilts exist for nightly snapshots).
 
 ### Signing
 
