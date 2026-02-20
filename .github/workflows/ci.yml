@@ -92,6 +92,8 @@ jobs:
           printf 'import SwiftSyntax\npublic func hello() -> String { "Hello" }\n' > /tmp/test-project/Sources/TestLib/Lib.swift
           # Resolve so Package.resolved exists at a non-cwd path
           cd /tmp/test-project && swift package resolve
+          # Clean .build/prebuilts/ to avoid poisoning (resolve creates sentinel files)
+          rm -rf /tmp/test-project/.build/prebuilts
 
       - name: Setup prebuilts (auto-detect from non-cwd Package.resolved)
         id: prebuilts
