@@ -48,7 +48,7 @@ export async function buildPrebuilt(
 // Added by setup-swiftsyntax-prebuilts
 package.products += [
     .library(name: "MacroSupport", type: .static, targets:
-        package.targets.filter { $0.type == .regular || $0.type == .system }.map(\.name)
+        package.targets.filter { $0.type == .regular || $0.type == .system }.map { $0.name }
     )
 ]
 `;

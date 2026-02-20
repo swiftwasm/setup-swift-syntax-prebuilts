@@ -1,6 +1,7 @@
 import { CompactSign, importPKCS8 } from "jose";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
+import { createPrivateKey } from "crypto";
 import { parseCertificate } from "./x509-utils";
 
 /**
@@ -41,12 +42,20 @@ export async function signManifest(
   const intermediate = readFileSync(join(certsDir, "TestIntermediateCA.cer"));
   const root = readFileSync(join(certsDir, "TestRootCA.cer"));
 
-  // Load private key
+  // Load private key (may be PKCS#1 or PKCS#8 format)
   const privateKeyPem = readFileSync(
     join(certsDir, "Test_rsa_key.pem"),
     "utf-8"
   );
-  const privateKey = await importPKCS8(privateKeyPem, "RS256");
+  let privateKey;
+  if (privateKeyPem.includes("BEGIN RSA PRIVATE KEY")) {
+    // PKCS#1 format - convert to PKCS#8 via Node.js crypto
+    const keyObj = createPrivateKey({ key: privateKeyPem, format: "pem" });
+    const pkcs8Pem = keyObj.export({ type: "pkcs8", format: "pem" }) as string;
+    privateKey = await importPKCS8(pkcs8Pem, "RS256");
+  } else {
+    privateKey = await importPKCS8(privateKeyPem, "RS256");
+  }
 
   // x5c: DER certs as standard base64 (NOT base64url)
   const x5c = [leaf, intermediate, root].map((c) => c.toString("base64"));

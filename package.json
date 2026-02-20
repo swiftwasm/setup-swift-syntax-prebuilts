@@ -12,8 +12,8 @@
     "@actions/cache": "^4.0.0",
     "@actions/core": "^1.11.0",
     "@actions/exec": "^1.1.1",
-    "jose": "^6.0.0",
-    "@peculiar/x509": "^1.12.0"
+    "@peculiar/x509": "^1.12.0",
+    "jose": "^5.10.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
