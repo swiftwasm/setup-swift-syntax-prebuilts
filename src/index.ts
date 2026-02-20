@@ -82,7 +82,7 @@ async function run() {
   const signingCerts = resolveSigningCerts();
 
   // 4. Cache restore
-  const cacheKey = `swift-syntax-prebuilt-v1-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
+  const cacheKey = `swift-syntax-prebuilt-v2-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
   core.info(`Cache key: ${cacheKey}`);
 
   let cacheHit = false;
