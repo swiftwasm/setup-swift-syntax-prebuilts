@@ -57,8 +57,10 @@ async function run() {
   }
 
   // 1. Detect toolchain
-  const { compilerTag, platform: hostPlatform } = await detectToolchain();
+  const { compilerTag, swiftMajorMinor, platform: hostPlatform } =
+    await detectToolchain();
   core.info(`Compiler tag: ${compilerTag}`);
+  core.info(`Swift version: ${swiftMajorMinor}`);
   core.info(`Host platform: ${hostPlatform}`);
 
   // 2. Resolve swift-syntax version
@@ -114,11 +116,20 @@ async function run() {
     core.endGroup();
 
     // 6. Generate & sign manifests
+    //
+    // SwiftPM main branch (>= 6.3-dev):
+    //   manifest: {compilerTag}-{platform}.json
+    //   artifact: {compilerTag}-{platform}-MacroSupport.tar.gz
+    //
+    // SwiftPM 6.1/6.2 (release branches):
+    //   manifest: {major.minor}-manifest.json      (e.g. "6.1-manifest.json")
+    //   artifact: {major.minor}-MacroSupport-{platform}.tar.gz
+    //
     const outDir = join(prebuiltsDir, "swift-syntax", syntaxVersion);
 
     core.startGroup("Generate and sign manifests");
 
-    // Main branch manifest (nightly toolchains, SwiftPM >= 6.3)
+    // Main branch manifest
     const mainManifest = generateMainManifest(checksum);
     const mainManifestPath = join(
       outDir,
@@ -127,21 +138,27 @@ async function run() {
     await signManifest(mainManifest, mainManifestPath, signingCerts);
     core.info(`Main manifest: ${mainManifestPath}`);
 
-    // V1 manifest (SwiftPM 6.1/6.2)
-    const v1Manifest = generateV1Manifest(checksum, hostPlatform);
-    const v1ManifestPath = join(outDir, `${compilerTag}-manifest.json`);
-    await signManifest(v1Manifest, v1ManifestPath, signingCerts);
-    core.info(`V1 manifest: ${v1ManifestPath}`);
-
-    // V1 uses different artifact naming: {tag}-{lib}-{platform}
-    // Main uses: {tag}-{platform}-{lib}
+    // Main branch artifact is already at the right name from buildPrebuilt:
+    //   {compilerTag}-{platform}-MacroSupport.tar.gz
     const mainArtifactName = `${compilerTag}-${hostPlatform}-MacroSupport.tar.gz`;
-    const v1ArtifactName = `${compilerTag}-MacroSupport-${hostPlatform}.tar.gz`;
     const mainArtifactPath = join(outDir, mainArtifactName);
-    const v1ArtifactPath = join(outDir, v1ArtifactName);
-    if (mainArtifactName !== v1ArtifactName && existsSync(mainArtifactPath)) {
-      cpSync(mainArtifactPath, v1ArtifactPath);
-      core.info(`V1 artifact (copy): ${v1ArtifactPath}`);
+
+    // V1 manifest and artifact (for SwiftPM 6.1/6.2)
+    if (swiftMajorMinor) {
+      const v1Manifest = generateV1Manifest(checksum, hostPlatform);
+      const v1ManifestPath = join(
+        outDir,
+        `${swiftMajorMinor}-manifest.json`
+      );
+      await signManifest(v1Manifest, v1ManifestPath, signingCerts);
+      core.info(`V1 manifest: ${v1ManifestPath}`);
+
+      const v1ArtifactName = `${swiftMajorMinor}-MacroSupport-${hostPlatform}.tar.gz`;
+      const v1ArtifactPath = join(outDir, v1ArtifactName);
+      if (existsSync(mainArtifactPath)) {
+        cpSync(mainArtifactPath, v1ArtifactPath);
+        core.info(`V1 artifact: ${v1ArtifactPath}`);
+      }
     }
 
     core.endGroup();

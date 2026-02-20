@@ -4,6 +4,7 @@ import { platform, arch } from "os";
 
 export interface ToolchainInfo {
   compilerTag: string;
+  swiftMajorMinor: string;
   platform: string;
 }
 
@@ -50,7 +51,13 @@ export async function detectToolchain(): Promise<ToolchainInfo> {
     hostPlatform = `${distro}_${codename}_${hostArch}`;
   }
 
-  return { compilerTag, platform: hostPlatform };
+  // Extract Swift major.minor version for v1 manifest naming.
+  // SwiftPM 6.1/6.2 uses SwiftVersion.current (major.minor) not the compiler tag.
+  const compilerVersionStr: string = info.compilerVersion ?? "";
+  const majorMinorMatch = compilerVersionStr.match(/Swift version (\d+\.\d+)/);
+  const swiftMajorMinor = majorMinorMatch ? majorMinorMatch[1] : "";
+
+  return { compilerTag, swiftMajorMinor, platform: hostPlatform };
 }
 
 function parseOsRelease(): Record<string, string> {

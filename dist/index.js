@@ -60333,8 +60333,9 @@ async function run() {
         core.info("Cleaned .build/prebuilts/ to avoid cache poisoning.");
     }
     // 1. Detect toolchain
-    const { compilerTag, platform: hostPlatform } = await (0, toolchain_1.detectToolchain)();
+    const { compilerTag, swiftMajorMinor, platform: hostPlatform } = await (0, toolchain_1.detectToolchain)();
     core.info(`Compiler tag: ${compilerTag}`);
+    core.info(`Swift version: ${swiftMajorMinor}`);
     core.info(`Host platform: ${hostPlatform}`);
     // 2. Resolve swift-syntax version
     const inputVersion = core.getInput("swift-syntax-version");
@@ -60376,27 +60377,38 @@ async function run() {
         const { checksum } = await (0, build_1.buildPrebuilt)(syntaxVersion, compilerTag, hostPlatform, prebuiltsDir);
         core.endGroup();
         // 6. Generate & sign manifests
+        //
+        // SwiftPM main branch (>= 6.3-dev):
+        //   manifest: {compilerTag}-{platform}.json
+        //   artifact: {compilerTag}-{platform}-MacroSupport.tar.gz
+        //
+        // SwiftPM 6.1/6.2 (release branches):
+        //   manifest: {major.minor}-manifest.json      (e.g. "6.1-manifest.json")
+        //   artifact: {major.minor}-MacroSupport-{platform}.tar.gz
+        //
         const outDir = (0, path_1.join)(prebuiltsDir, "swift-syntax", syntaxVersion);
         core.startGroup("Generate and sign manifests");
-        // Main branch manifest (nightly toolchains, SwiftPM >= 6.3)
+        // Main branch manifest
         const mainManifest = (0, manifest_1.generateMainManifest)(checksum);
         const mainManifestPath = (0, path_1.join)(outDir, `${compilerTag}-${hostPlatform}.json`);
         await (0, sign_1.signManifest)(mainManifest, mainManifestPath, signingCerts);
         core.info(`Main manifest: ${mainManifestPath}`);
-        // V1 manifest (SwiftPM 6.1/6.2)
-        const v1Manifest = (0, manifest_1.generateV1Manifest)(checksum, hostPlatform);
-        const v1ManifestPath = (0, path_1.join)(outDir, `${compilerTag}-manifest.json`);
-        await (0, sign_1.signManifest)(v1Manifest, v1ManifestPath, signingCerts);
-        core.info(`V1 manifest: ${v1ManifestPath}`);
-        // V1 uses different artifact naming: {tag}-{lib}-{platform}
-        // Main uses: {tag}-{platform}-{lib}
+        // Main branch artifact is already at the right name from buildPrebuilt:
+        //   {compilerTag}-{platform}-MacroSupport.tar.gz
         const mainArtifactName = `${compilerTag}-${hostPlatform}-MacroSupport.tar.gz`;
-        const v1ArtifactName = `${compilerTag}-MacroSupport-${hostPlatform}.tar.gz`;
         const mainArtifactPath = (0, path_1.join)(outDir, mainArtifactName);
-        const v1ArtifactPath = (0, path_1.join)(outDir, v1ArtifactName);
-        if (mainArtifactName !== v1ArtifactName && (0, fs_1.existsSync)(mainArtifactPath)) {
-            (0, fs_1.cpSync)(mainArtifactPath, v1ArtifactPath);
-            core.info(`V1 artifact (copy): ${v1ArtifactPath}`);
+        // V1 manifest and artifact (for SwiftPM 6.1/6.2)
+        if (swiftMajorMinor) {
+            const v1Manifest = (0, manifest_1.generateV1Manifest)(checksum, hostPlatform);
+            const v1ManifestPath = (0, path_1.join)(outDir, `${swiftMajorMinor}-manifest.json`);
+            await (0, sign_1.signManifest)(v1Manifest, v1ManifestPath, signingCerts);
+            core.info(`V1 manifest: ${v1ManifestPath}`);
+            const v1ArtifactName = `${swiftMajorMinor}-MacroSupport-${hostPlatform}.tar.gz`;
+            const v1ArtifactPath = (0, path_1.join)(outDir, v1ArtifactName);
+            if ((0, fs_1.existsSync)(mainArtifactPath)) {
+                (0, fs_1.cpSync)(mainArtifactPath, v1ArtifactPath);
+                core.info(`V1 artifact: ${v1ArtifactPath}`);
+            }
         }
         core.endGroup();
         // Copy root cert into prebuilts dir for self-contained output
@@ -60774,7 +60786,12 @@ async function detectToolchain() {
         const codename = osRelease.VERSION_CODENAME ?? "unknown";
         hostPlatform = `${distro}_${codename}_${hostArch}`;
     }
-    return { compilerTag, platform: hostPlatform };
+    // Extract Swift major.minor version for v1 manifest naming.
+    // SwiftPM 6.1/6.2 uses SwiftVersion.current (major.minor) not the compiler tag.
+    const compilerVersionStr = info.compilerVersion ?? "";
+    const majorMinorMatch = compilerVersionStr.match(/Swift version (\d+\.\d+)/);
+    const swiftMajorMinor = majorMinorMatch ? majorMinorMatch[1] : "";
+    return { compilerTag, swiftMajorMinor, platform: hostPlatform };
 }
 function parseOsRelease() {
     try {

@@ -20,7 +20,7 @@ import { join } from "path";
 import { exec, getExecOutput } from "@actions/exec";
 import { detectToolchain } from "../src/toolchain";
 import { buildPrebuilt } from "../src/build";
-import { generateMainManifest } from "../src/manifest";
+import { generateMainManifest, generateV1Manifest } from "../src/manifest";
 import { signManifest, defaultCertPaths } from "../src/sign";
 
 const SYNTAX_VERSION = "600.0.1";
@@ -30,6 +30,7 @@ const certs = defaultCertPaths(certsDir);
 let prebuiltsDir: string;
 let projectDir: string;
 let compilerTag: string;
+let swiftMajorMinor: string;
 let hostPlatform: string;
 let checksum: string;
 
@@ -38,6 +39,7 @@ describe("e2e: build and consume prebuilts", () => {
     // Detect toolchain
     const info = await detectToolchain();
     compilerTag = info.compilerTag;
+    swiftMajorMinor = info.swiftMajorMinor;
     hostPlatform = info.platform;
 
     prebuiltsDir = mkdtempSync(join(tmpdir(), "prebuilts-e2e-"));
@@ -51,14 +53,36 @@ describe("e2e: build and consume prebuilts", () => {
     );
     checksum = result.checksum;
 
-    // Sign manifest
+    // Sign manifests (both main-branch and v1 format)
     const outDir = join(prebuiltsDir, "swift-syntax", SYNTAX_VERSION);
+
+    // Main branch format
     const manifest = generateMainManifest(checksum);
     const manifestPath = join(
       outDir,
       `${compilerTag}-${hostPlatform}.json`
     );
     await signManifest(manifest, manifestPath, certs);
+
+    // V1 format (for SwiftPM 6.1/6.2)
+    if (swiftMajorMinor) {
+      const v1Manifest = generateV1Manifest(checksum, hostPlatform);
+      const v1ManifestPath = join(outDir, `${swiftMajorMinor}-manifest.json`);
+      await signManifest(v1Manifest, v1ManifestPath, certs);
+
+      // V1 artifact naming
+      const mainArtifact = join(
+        outDir,
+        `${compilerTag}-${hostPlatform}-MacroSupport.tar.gz`
+      );
+      const v1Artifact = join(
+        outDir,
+        `${swiftMajorMinor}-MacroSupport-${hostPlatform}.tar.gz`
+      );
+      if (existsSync(mainArtifact)) {
+        cpSync(mainArtifact, v1Artifact);
+      }
+    }
 
     // Copy root cert
     const certsDest = join(prebuiltsDir, ".certs");
@@ -94,6 +118,18 @@ let package = Package(
   after(() => {
     if (prebuiltsDir) rmSync(prebuiltsDir, { recursive: true, force: true });
     if (projectDir) rmSync(projectDir, { recursive: true, force: true });
+  });
+
+  it("produces a valid archive", () => {
+    const artifactPath = join(
+      prebuiltsDir,
+      "swift-syntax",
+      SYNTAX_VERSION,
+      `${compilerTag}-${hostPlatform}-MacroSupport.tar.gz`
+    );
+    assert.ok(existsSync(artifactPath), "Archive should exist");
+    const stat = readFileSync(artifactPath);
+    assert.ok(stat.length > 1024 * 1024, "Archive should be > 1MB");
   });
 
   it("produces a signed manifest", () => {
