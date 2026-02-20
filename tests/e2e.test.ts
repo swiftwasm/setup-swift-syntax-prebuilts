@@ -77,7 +77,9 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.1"),
     ],
     targets: [
-        .target(name: "TestLib"),
+        .target(name: "TestLib", dependencies: [
+            .product(name: "SwiftSyntax", package: "swift-syntax"),
+        ]),
     ]
 )
 `
@@ -85,7 +87,7 @@ let package = Package(
     mkdirSync(join(projectDir, "Sources", "TestLib"), { recursive: true });
     writeFileSync(
       join(projectDir, "Sources", "TestLib", "Lib.swift"),
-      'public func hello() -> String { "Hello" }\n'
+      'import SwiftSyntax\npublic func hello() -> String { "Hello" }\n'
     );
   });
 

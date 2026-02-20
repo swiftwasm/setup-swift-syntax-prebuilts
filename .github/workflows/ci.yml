@@ -83,11 +83,14 @@ jobs:
                   .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.1"),
               ],
               targets: [
-                  .target(name: "TestLib"),
+                  .target(name: "TestLib", dependencies: [
+                      .product(name: "SwiftSyntax", package: "swift-syntax"),
+                  ]),
               ]
           )
           EOF
-          echo 'public func hello() -> String { "Hello" }' > /tmp/test-project/Sources/TestLib/Lib.swift
+          echo 'import SwiftSyntax
+public func hello() -> String { "Hello" }' > /tmp/test-project/Sources/TestLib/Lib.swift
           # Resolve so Package.resolved exists at a non-cwd path
           cd /tmp/test-project && swift package resolve
 
