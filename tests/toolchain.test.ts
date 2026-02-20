@@ -7,9 +7,15 @@ describe("detectToolchain", () => {
     const { compilerTag } = await detectToolchain();
     assert.ok(compilerTag.length > 0, "compilerTag should be non-empty");
     // Should be a recognizable format
+    // Should be a recognizable format: swift-*, swiftlang-*
     assert.ok(
       compilerTag.startsWith("swift-") || compilerTag.startsWith("swiftlang-"),
       `compilerTag should start with 'swift-' or 'swiftlang-', got: ${compilerTag}`
+    );
+    // Should not contain spaces or other unexpected chars
+    assert.ok(
+      !compilerTag.includes(" "),
+      `compilerTag should not contain spaces, got: ${compilerTag}`
     );
   });
 

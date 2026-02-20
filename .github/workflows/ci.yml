@@ -43,7 +43,6 @@ jobs:
       matrix:
         swift-version:
           - '6.1'
-          - 'nightly-main'
     steps:
       - uses: actions/checkout@v4
 
@@ -52,13 +51,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - uses: swiftwasm/setup-swiftwasm@v2
-        if: matrix.swift-version == 'nightly-main'
-        with:
-          swift-version: 'wasm-DEVELOPMENT-SNAPSHOT-2024-12-27-a'
-
       - uses: swift-actions/setup-swift@v2
-        if: matrix.swift-version != 'nightly-main'
         with:
           swift-version: ${{ matrix.swift-version }}
 

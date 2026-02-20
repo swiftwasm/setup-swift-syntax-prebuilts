@@ -14,12 +14,22 @@ export async function detectToolchain(): Promise<ToolchainInfo> {
   // Prefer swiftCompilerTag, fall back to parsing compilerVersion
   let compilerTag: string = info.swiftCompilerTag ?? "";
   if (!compilerTag) {
-    // Try extracting from compilerVersion string
-    // e.g. "Apple Swift version 6.2 (swiftlang-6.2.1.4.8 clang-...)"
     const versionStr: string = info.compilerVersion ?? "";
-    const match = versionStr.match(/swiftlang-([\w.-]+)/);
-    if (match) {
-      compilerTag = `swiftlang-${match[1]}`;
+    // Try Xcode format: "Apple Swift version 6.2 (swiftlang-6.2.1.4.8 clang-...)"
+    const xcodeMatch = versionStr.match(/swiftlang-([\w.-]+)/);
+    // Try open-source release: "Swift version 6.1.3 (swift-6.1.3-RELEASE)"
+    const releaseMatch = versionStr.match(/(swift-[\w.-]+-RELEASE)/);
+    // Try snapshot: "Swift version 6.3-dev (LLVM ..., Swift ...)"
+    // with version like "Swift version X.Y-dev" -> construct tag
+    const devMatch = versionStr.match(/Swift version ([\d.]+)-dev/);
+
+    if (xcodeMatch) {
+      compilerTag = `swiftlang-${xcodeMatch[1]}`;
+    } else if (releaseMatch) {
+      compilerTag = releaseMatch[1];
+    } else if (devMatch) {
+      // For dev builds without swiftCompilerTag, construct a best-effort tag
+      compilerTag = `swift-${devMatch[1]}-DEVELOPMENT-SNAPSHOT`;
     } else {
       throw new Error(
         `Cannot determine Swift compiler tag from target-info: ${JSON.stringify(info)}`
