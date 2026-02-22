@@ -1,0 +1,7 @@
+name = "swiftsyntax-prebuilts"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+[vars]
+GITHUB_OWNER = "swiftwasm"
+GITHUB_REPO = "setup-swiftsyntax-prebuilts"
