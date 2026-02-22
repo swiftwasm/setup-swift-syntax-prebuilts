@@ -2,7 +2,7 @@
  * End-to-end test: build swift-syntax prebuilts and verify SwiftPM consumes them.
  *
  * Requires: Swift toolchain, git, ~5 minutes for first run.
- * Run with: npx tsx --test tests/e2e.test.ts
+ * Run with: npm run test:e2e
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -22,10 +22,10 @@ import { detectToolchain } from "../src/toolchain";
 import { buildPrebuilt } from "../src/build";
 import { generateMainManifest, generateV1Manifest } from "../src/manifest";
 import { signManifest, defaultCertPaths } from "../src/sign";
+import { CERTS_DIR } from "./helpers";
 
 const SYNTAX_VERSION = "600.0.1";
-const certsDir = join(__dirname, "..", "certs");
-const certs = defaultCertPaths(certsDir);
+const certs = defaultCertPaths(CERTS_DIR);
 
 let prebuiltsDir: string;
 let projectDir: string;

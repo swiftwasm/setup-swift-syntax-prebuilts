@@ -4,10 +4,12 @@
   "description": "GitHub Action to build and cache prebuilt SwiftSyntax for nightly toolchains",
   "main": "dist/index.js",
   "scripts": {
-    "build": "ncc build src/index.ts -o dist",
+    "build": "ncc build src/index.ts -o dist && ncc build src/cli-build.ts -o dist/cli-build && ncc build src/cli-merge-v1-manifest.ts -o dist/cli-merge-v1-manifest",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/resolve.test.ts tests/manifest.test.ts tests/sign.test.ts tests/x509.test.ts tests/toolchain.test.ts tests/worker.test.ts",
-    "test:e2e": "tsx --test tests/e2e.test.ts",
+    "pretest": "tsc -p tsconfig.test.json",
+    "test": "node --test lib-test/tests/resolve.test.js lib-test/tests/manifest.test.js lib-test/tests/sign.test.js lib-test/tests/x509.test.js lib-test/tests/toolchain.test.js lib-test/tests/worker.test.js",
+    "pretest:e2e": "tsc -p tsconfig.test.json",
+    "test:e2e": "node --test lib-test/tests/e2e.test.js",
     "test:all": "npm test && npm run test:e2e"
   },
   "license": "MIT",
@@ -21,7 +23,6 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@vercel/ncc": "^0.38.0",
-    "tsx": "^4.21.0",
     "typescript": "^5.5.0"
   }
 }

@@ -5,9 +5,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { signManifest, sortKeysDeep, defaultCertPaths } from "../src/sign";
 import { generateMainManifest, generateV1Manifest } from "../src/manifest";
+import { CERTS_DIR } from "./helpers";
 
-const certsDir = join(__dirname, "..", "certs");
-const certs = defaultCertPaths(certsDir);
+const certs = defaultCertPaths(CERTS_DIR);
 const CHECKSUM = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
 
 describe("sortKeysDeep", () => {

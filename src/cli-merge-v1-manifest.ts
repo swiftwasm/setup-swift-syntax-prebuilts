@@ -1,4 +1,3 @@
-#!/usr/bin/env tsx
 /**
  * Merge per-platform V1 manifests into a single multi-platform V1 manifest.
  *
@@ -7,7 +6,7 @@
  * platform artifacts, then re-signs it.
  *
  * Usage:
- *   npx tsx src/cli-merge-v1-manifest.ts \
+ *   node dist/cli-merge-v1-manifest.js \
  *     --swift-major-minor 6.1 \
  *     --input-dir ./platform-outputs \
  *     --output-dir ./merged \

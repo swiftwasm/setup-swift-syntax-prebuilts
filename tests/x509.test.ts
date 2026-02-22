@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { parseCertificate } from "../src/x509-utils";
+import { CERTS_DIR } from "./helpers";
 
-const certsDir = join(__dirname, "..", "certs");
+const certsDir = CERTS_DIR;
 
 describe("parseCertificate", () => {
   it("parses leaf certificate subject", () => {

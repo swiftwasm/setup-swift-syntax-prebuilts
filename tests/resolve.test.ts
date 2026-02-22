@@ -4,8 +4,9 @@ import { mkdtempSync, cpSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { resolveSyntaxVersion } from "../src/resolve";
+import { FIXTURES_DIR } from "./helpers";
 
-const fixturesDir = join(__dirname, "..", "fixtures");
+const fixturesDir = FIXTURES_DIR;
 
 // resolveSyntaxVersion reads Package.resolved from cwd when no path is given,
 // so we chdir into a temp dir for those tests.

@@ -79,7 +79,7 @@ jobs:
 
       - name: Build prebuilt
         run: |
-          npx tsx src/cli-build.ts \
+          node dist/cli-build/index.js \
             --syntax-version "${{ inputs.swift-syntax-version }}" \
             --compiler-tag "${{ inputs.compiler-tag }}" \
             --swift-major-minor "${{ inputs.swift-major-minor }}" \
@@ -123,7 +123,7 @@ jobs:
       - name: Merge V1 manifests (if applicable)
         if: inputs.swift-major-minor != ''
         run: |
-          npx tsx src/cli-merge-v1-manifest.ts \
+          node dist/cli-merge-v1-manifest/index.js \
             --swift-major-minor "${{ inputs.swift-major-minor }}" \
             --input-dir ./all-platforms \
             --output-dir ./merged-v1

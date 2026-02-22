@@ -1,4 +1,3 @@
-#!/usr/bin/env tsx
 /**
  * CLI entry point for building SwiftSyntax prebuilt artifacts.
  *
@@ -8,7 +7,7 @@
  *   - V1 manifest + artifact ({majorMinor}-*) if swiftMajorMinor is provided
  *
  * Usage:
- *   npx tsx src/cli-build.ts \
+ *   node dist/cli-build.js \
  *     --syntax-version 600.0.1 \
  *     --compiler-tag swift-6.1-RELEASE \
  *     --swift-major-minor 6.1 \
@@ -62,7 +61,7 @@ function parseArgs(): CliArgs {
     if (!parsed[key]) {
       console.error(`Missing required argument: --${key}`);
       console.error(
-        "Usage: npx tsx src/cli-build.ts --syntax-version VERSION --compiler-tag TAG --platform PLATFORM --output-dir DIR [--swift-major-minor X.Y] [--certs-dir DIR]"
+        "Usage: node dist/cli-build.js --syntax-version VERSION --compiler-tag TAG --platform PLATFORM --output-dir DIR [--swift-major-minor X.Y] [--certs-dir DIR]"
       );
       process.exit(1);
     }
