@@ -50,7 +50,7 @@ function buildGitHubUrl(
   filename: string
 ): string {
   const tag = buildReleaseTag(syntaxVersion, compilerTag);
-  return `https://github.com/swiftwasm/setup-swiftsyntax-prebuilts/releases/download/${tag}/${filename}`;
+  return `https://github.com/swiftwasm/setup-swift-syntax-prebuilts/releases/download/${tag}/${filename}`;
 }
 
 describe("Worker: extractCompilerTag", () => {
@@ -131,7 +131,7 @@ describe("Worker: URL routing", () => {
     const url = buildGitHubUrl("600.0.1", tag, filename);
     assert.equal(
       url,
-      "https://github.com/swiftwasm/setup-swiftsyntax-prebuilts/releases/download/prebuilt-600.0.1-swift-6.1-RELEASE/swift-6.1-RELEASE-ubuntu_noble_x86_64.json"
+      "https://github.com/swiftwasm/setup-swift-syntax-prebuilts/releases/download/prebuilt-600.0.1-swift-6.1-RELEASE/swift-6.1-RELEASE-ubuntu_noble_x86_64.json"
     );
   });
 
@@ -141,7 +141,7 @@ describe("Worker: URL routing", () => {
     const url = buildGitHubUrl("600.0.1", tag, filename);
     assert.equal(
       url,
-      "https://github.com/swiftwasm/setup-swiftsyntax-prebuilts/releases/download/prebuilt-600.0.1-swift-6.1-RELEASE/6.1-manifest.json"
+      "https://github.com/swiftwasm/setup-swift-syntax-prebuilts/releases/download/prebuilt-600.0.1-swift-6.1-RELEASE/6.1-manifest.json"
     );
   });
 
@@ -152,7 +152,7 @@ describe("Worker: URL routing", () => {
     const url = buildGitHubUrl("600.0.1", tag, filename);
     assert.equal(
       url,
-      "https://github.com/swiftwasm/setup-swiftsyntax-prebuilts/releases/download/prebuilt-600.0.1-swift-DEVELOPMENT-SNAPSHOT-2025-06-01-a/swift-DEVELOPMENT-SNAPSHOT-2025-06-01-a-ubuntu_noble_x86_64-MacroSupport.tar.gz"
+      "https://github.com/swiftwasm/setup-swift-syntax-prebuilts/releases/download/prebuilt-600.0.1-swift-DEVELOPMENT-SNAPSHOT-2025-06-01-a/swift-DEVELOPMENT-SNAPSHOT-2025-06-01-a-ubuntu_noble_x86_64-MacroSupport.tar.gz"
     );
   });
 });

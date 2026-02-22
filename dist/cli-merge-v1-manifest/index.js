@@ -20427,7 +20427,6 @@ var __createBinding;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.sortKeysDeep = sortKeysDeep;
-exports.encodeManifestPayload = encodeManifestPayload;
 exports.defaultCertPaths = defaultCertPaths;
 exports.signManifest = signManifest;
 const jose_1 = __nccwpck_require__(1608);
@@ -20454,47 +20453,12 @@ function sortKeysDeep(obj) {
 }
 /**
  * Encode a manifest object to match Swift's JSONEncoder.makeWithDefaults(prettified: true).
- * Swift uses: sortedKeys, prettyPrinted (2-space indent), withoutEscapingSlashes.
- *
- * CRITICAL: Swift's prettyPrinted format uses `"key" : "value"` (space-colon-space)
- * while JSON.stringify uses `"key": "value"` (colon-space). We must match Swift's
- * format exactly because SwiftPM re-encodes the manifest and compares bytes.
+ * Swift uses: sortedKeys, prettyPrinted (2-space indent), withoutEscapingSlashes
  */
 function encodeManifestPayload(manifest) {
     const sorted = sortKeysDeep(manifest);
-    const json = swiftJSONStringify(sorted, 0);
+    const json = JSON.stringify(sorted, null, 2);
     return new TextEncoder().encode(json);
-}
-/**
- * Produce JSON that matches Swift's JSONEncoder with .prettyPrinted and .sortedKeys.
- * Key differences from JSON.stringify:
- * - Uses `" : "` between key and value (space before colon)
- * - Closing brackets/braces are on their own line at the parent indent level
- */
-function swiftJSONStringify(value, indent) {
-    const pad = "  ".repeat(indent);
-    const innerPad = "  ".repeat(indent + 1);
-    if (value === null || value === undefined) {
-        return "null";
-    }
-    if (typeof value === "boolean" || typeof value === "number") {
-        return JSON.stringify(value);
-    }
-    if (typeof value === "string") {
-        return JSON.stringify(value);
-    }
-    if (Array.isArray(value)) {
-        if (value.length === 0)
-            return "[ ]";
-        const items = value.map((item) => innerPad + swiftJSONStringify(item, indent + 1));
-        return "[\n" + items.join(",\n") + "\n" + pad + "]";
-    }
-    // Object
-    const keys = Object.keys(value);
-    if (keys.length === 0)
-        return "{ }";
-    const entries = keys.map((key) => innerPad + JSON.stringify(key) + " : " + swiftJSONStringify(value[key], indent + 1));
-    return "{\n" + entries.join(",\n") + "\n" + pad + "}";
 }
 /** Default bundled certificate paths. */
 function defaultCertPaths(certsDir) {

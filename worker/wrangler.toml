@@ -4,4 +4,4 @@ compatibility_date = "2025-06-01"
 
 [vars]
 GITHUB_OWNER = "swiftwasm"
-GITHUB_REPO = "setup-swiftsyntax-prebuilts"
+GITHUB_REPO = "setup-swift-syntax-prebuilts"
