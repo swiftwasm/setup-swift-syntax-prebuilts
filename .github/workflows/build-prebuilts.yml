@@ -77,6 +77,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Build dist
+        run: npm run build
+
       - name: Build prebuilt
         run: |
           node dist/cli-build/index.js \
@@ -110,6 +113,9 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+
+      - name: Build dist
+        run: npm run build
 
       - name: Download all platform artifacts
         uses: actions/download-artifact@v4

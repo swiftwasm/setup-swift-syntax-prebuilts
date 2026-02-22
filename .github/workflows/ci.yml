@@ -26,14 +26,8 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      - name: Verify dist/ is up to date
-        run: |
-          npm run build
-          if ! git diff --quiet dist/; then
-            echo "::error::dist/index.js is out of date. Run 'npm run build' and commit."
-            git diff --stat dist/
-            exit 1
-          fi
+      - name: Build
+        run: npm run build
 
   e2e-test:
     name: E2E Test (${{ matrix.swift-version }})
@@ -66,6 +60,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Build dist
+        run: npm run build
 
       - uses: swift-actions/setup-swift@v2
         with:
