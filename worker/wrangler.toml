@@ -1,0 +1,12 @@
+name = "swiftsyntax-prebuilts"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+[vars]
+GITHUB_OWNER = "swiftwasm"
+GITHUB_REPO = "setup-swift-syntax-prebuilts"
+
+# GITHUB_TOKEN is an optional secret for private repo access.
+# Set it with: npx wrangler secret put GITHUB_TOKEN
+# Without it, only public repos work (plain 302 redirect).
+# With it, the worker resolves a pre-signed CDN URL via GitHub API.

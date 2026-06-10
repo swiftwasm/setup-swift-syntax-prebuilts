@@ -1,0 +1,227 @@
+name: Build Prebuilts
+
+# Build SwiftSyntax prebuilt artifacts for all platforms and publish
+# them as a GitHub Release. The release tag lives on the orphan
+# 'gh-releases' branch so it doesn't pollute main history.
+#
+# Release tag format: prebuilt-{syntaxVersion}-{compilerTag}
+# Each release contains manifests + artifacts for all platforms.
+
+on:
+  workflow_dispatch:
+    inputs:
+      swift-syntax-version:
+        description: 'swift-syntax version (git tag, e.g. 600.0.1)'
+        required: true
+        type: string
+      compiler-tag:
+        description: 'Swift compiler tag (e.g. swift-6.1-RELEASE)'
+        required: true
+        type: string
+      swift-major-minor:
+        description: 'Swift major.minor for V1 manifest (e.g. 6.1). Leave empty to skip V1.'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            platform: ubuntu_jammy_x86_64
+            swift-version: ''
+          - runner: ubuntu-24.04
+            platform: ubuntu_noble_x86_64
+            swift-version: ''
+          # - runner: ubuntu-24.04-arm
+          #   platform: ubuntu_noble_aarch64
+          #   swift-version: ''
+          - runner: macos-15
+            platform: macos_universal
+            swift-version: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Determine Swift version to install
+        id: swift-version
+        run: |
+          TAG="${{ inputs.compiler-tag }}"
+          # Extract installable version from compiler tag
+          # swift-6.1-RELEASE -> 6.1
+          # swift-6.1.2-RELEASE -> 6.1.2
+          # swift-DEVELOPMENT-SNAPSHOT-2025-06-01-a -> main-snapshot-2025-06-01-a
+          if [[ "$TAG" =~ ^swift-([0-9]+\.[0-9]+(\.[0-9]+)?)-RELEASE$ ]]; then
+            echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" =~ ^swift-DEVELOPMENT-SNAPSHOT-(.+)$ ]]; then
+            echo "version=main-snapshot-${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" =~ ^swift-([0-9]+\.[0-9]+(\.[0-9]+)?)-DEVELOPMENT-SNAPSHOT-(.+)$ ]]; then
+            echo "version=${BASH_REMATCH[1]}-snapshot-${BASH_REMATCH[3]}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Cannot parse compiler tag: $TAG"
+            exit 1
+          fi
+
+      - uses: swift-actions/setup-swift@v3
+        id: setup-swift
+        continue-on-error: true
+        with:
+          swift-version: ${{ steps.swift-version.outputs.version }}
+          skip-verify-signature: ${{ runner.os == 'Linux' }}
+
+      - name: Verify Swift installation
+        run: swift --version
+
+      - run: npm ci
+
+      - name: Build dist
+        run: npm run build
+
+      - name: Build prebuilt
+        run: |
+          mkdir -p ./prebuilt-output
+          node dist/cli-build/index.js \
+            --syntax-version "${{ inputs.swift-syntax-version }}" \
+            --compiler-tag "${{ inputs.compiler-tag }}" \
+            --swift-major-minor "${{ inputs.swift-major-minor }}" \
+            --platform "${{ matrix.platform }}" \
+            --output-dir ./prebuilt-output \
+            > ./prebuilt-output/summary.json
+        timeout-minutes: 15
+
+      - name: Upload platform artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt-${{ matrix.platform }}
+          path: ./prebuilt-output/
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Build dist
+        run: npm run build
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./all-platforms/
+          pattern: prebuilt-*
+
+      - name: List downloaded artifacts
+        run: find ./all-platforms/ -type f | sort
+
+      - name: Merge V1 manifests (if applicable)
+        if: inputs.swift-major-minor != ''
+        run: |
+          node dist/cli-merge-v1-manifest/index.js \
+            --swift-major-minor "${{ inputs.swift-major-minor }}" \
+            --input-dir ./all-platforms \
+            --output-dir ./merged-v1
+
+      - name: Prepare release assets
+        id: assets
+        run: |
+          mkdir -p ./release-assets
+
+          # Collect main branch manifests + artifacts from each platform
+          for dir in ./all-platforms/prebuilt-*/; do
+            platform=$(basename "$dir" | sed 's/^prebuilt-//')
+            TAG="${{ inputs.compiler-tag }}"
+
+            # Main branch manifest
+            cp "${dir}${TAG}-${platform}.json" ./release-assets/ 2>/dev/null || true
+            # Main branch artifact
+            cp "${dir}${TAG}-${platform}-MacroSupport.tar.gz" ./release-assets/ 2>/dev/null || true
+
+            # V1 artifact (per-platform)
+            MAJOR_MINOR="${{ inputs.swift-major-minor }}"
+            if [ -n "$MAJOR_MINOR" ]; then
+              cp "${dir}${MAJOR_MINOR}-MacroSupport-${platform}.tar.gz" ./release-assets/ 2>/dev/null || true
+            fi
+
+            # Root CA cert (same for all, just copy once)
+            cp "${dir}root-ca.cer" ./release-assets/ 2>/dev/null || true
+          done
+
+          # Merged V1 manifest (all platforms in one file)
+          MAJOR_MINOR="${{ inputs.swift-major-minor }}"
+          if [ -n "$MAJOR_MINOR" ] && [ -f "./merged-v1/${MAJOR_MINOR}-manifest.json" ]; then
+            cp "./merged-v1/${MAJOR_MINOR}-manifest.json" ./release-assets/
+          fi
+
+          echo "Release assets:"
+          ls -la ./release-assets/
+
+      - name: Ensure orphan branch exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! git ls-remote --heads origin gh-releases | grep -q gh-releases; then
+            # Create the orphan branch via the GitHub API (no local checkout needed)
+            REPO="${{ github.repository }}"
+            # Get the tree SHA for an empty tree
+            EMPTY_TREE=$(git hash-object -t tree /dev/null)
+            # Create a commit with no parents
+            COMMIT_SHA=$(gh api "repos/$REPO/git/commits" \
+              -f message="Release branch for prebuilt artifacts" \
+              -f "tree=$EMPTY_TREE" \
+              --jq '.sha')
+            # Create the branch ref
+            gh api "repos/$REPO/git/refs" \
+              -f "ref=refs/heads/gh-releases" \
+              -f "sha=$COMMIT_SHA"
+            echo "Created gh-releases branch at $COMMIT_SHA"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="prebuilt-${{ inputs.swift-syntax-version }}-${{ inputs.compiler-tag }}"
+          TITLE="swift-syntax ${{ inputs.swift-syntax-version }} / ${{ inputs.compiler-tag }}"
+
+          # Fetch the gh-releases branch SHA for the tag target
+          TARGET_SHA=$(git ls-remote origin gh-releases | cut -f1)
+
+          # Delete existing release if it exists (to allow re-runs)
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          git push origin :refs/tags/"$TAG" 2>/dev/null || true
+
+          # Create release on the gh-releases branch
+          BODY="Prebuilt SwiftSyntax artifacts.
+
+          - swift-syntax: ${{ inputs.swift-syntax-version }}
+          - Compiler: ${{ inputs.compiler-tag }}
+          - Platforms: $(ls ./release-assets/*-MacroSupport.tar.gz 2>/dev/null | sed 's/.*\///' | sed 's/-MacroSupport.tar.gz//' | tr '\n' ', ' | sed 's/,$//')"
+
+          gh release create "$TAG" \
+            --target "$TARGET_SHA" \
+            --title "$TITLE" \
+            --notes "$BODY" \
+            ./release-assets/*
+
+          echo "✅ Release created: $TAG"
+          echo "   URL: https://github.com/${{ github.repository }}/releases/tag/$TAG"
