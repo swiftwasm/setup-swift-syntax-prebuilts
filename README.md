@@ -11,9 +11,11 @@ Apple only publishes prebuilt SwiftSyntax binaries for specific Xcode compiler t
 This action:
 1. Detects your Swift compiler tag and host platform
 2. Resolves the swift-syntax version from `Package.resolved`
-3. Restores from GitHub Actions cache (or builds on miss)
-4. Signs the manifest with JWS-compatible certificates
-5. Exports flags for `swift build` to use local prebuilts
+3. Restores from GitHub Actions cache
+4. Restores published GitHub Release assets on cache miss
+5. Builds locally only when no cached or published artifact exists
+6. Signs the manifest with JWS-compatible certificates
+7. Exports flags for `swift build` to use local prebuilts
 
 ## Usage
 
@@ -68,6 +70,9 @@ jobs:
 | `swift-syntax-version` | No | *(auto-detect)* | swift-syntax version to prebuild. Auto-detected from `Package.resolved` if omitted. |
 | `package-resolved-path` | No | `Package.resolved` | Path to `Package.resolved` for version auto-detection. Useful when the project is checked out in a non-cwd directory. |
 | `cache-backend` | No | `github` | `github` or `s3` |
+| `restore-from-release` | No | `true` | Restore published prebuilts from GitHub Releases before building locally. |
+| `release-owner` | No | `swiftwasm` | GitHub owner that publishes prebuilt release assets. |
+| `release-repo` | No | `setup-swift-syntax-prebuilts` | GitHub repo that publishes prebuilt release assets. |
 | `s3-bucket` | No | | S3 bucket name (when `cache-backend=s3`) |
 | `s3-prefix` | No | `swift-syntax-prebuilts` | S3 key prefix |
 | `signing-leaf-cert` | No | *(bundled)* | Path to leaf certificate (DER format) for manifest signing |
@@ -83,12 +88,14 @@ jobs:
 | `prebuilts-path` | Filesystem path to the prebuilts directory |
 | `swift-syntax-version` | The resolved version that was prebuilt |
 | `cache-hit` | `true` if restored from cache |
+| `restore-source` | `github-cache`, `github-release`, `local-build`, or `none` |
 
 ## How It Works
 
 ### Cache Lifecycle
 
-- **First run** with a new toolchain snapshot: cache miss → build swift-syntax (~4 min) → save cache
+- **First run** with a published release asset: cache miss → download release asset (~10 sec) → save cache
+- **First run** without a published release asset: cache miss → build swift-syntax (~4 min) → save cache
 - **Subsequent runs** (same snapshot): cache hit → restore (~10 sec)
 - **New snapshot**: cache miss → rebuild → save. Old entries auto-evict after 7 days.
 

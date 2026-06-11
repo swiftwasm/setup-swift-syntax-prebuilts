@@ -11,6 +11,15 @@ inputs:
   cache-backend:
     description: 'Cache backend: github or s3'
     default: 'github'
+  restore-from-release:
+    description: 'Restore published prebuilts from GitHub Releases before building locally'
+    default: 'true'
+  release-owner:
+    description: 'GitHub owner that publishes prebuilt release assets'
+    default: 'swiftwasm'
+  release-repo:
+    description: 'GitHub repo that publishes prebuilt release assets'
+    default: 'setup-swift-syntax-prebuilts'
   s3-bucket:
     description: 'S3 bucket name (when cache-backend=s3)'
     default: ''
@@ -39,6 +48,8 @@ outputs:
     description: 'The resolved swift-syntax version that was prebuilt'
   cache-hit:
     description: 'Whether the prebuilt was restored from cache'
+  restore-source:
+    description: 'Where artifacts came from: github-cache, github-release, local-build, or none'
 
 runs:
   using: 'node20'

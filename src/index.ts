@@ -8,6 +8,7 @@ import { resolveSyntaxVersion } from "./resolve";
 import { buildPrebuilt } from "./build";
 import { generateMainManifest, generateV1Manifest } from "./manifest";
 import { signManifest, defaultCertPaths, SigningCerts } from "./sign";
+import { restoreFromRelease } from "./release";
 
 /**
  * Determine the base directory for prebuilt artifacts.
@@ -95,7 +96,7 @@ async function run() {
       if (cacheHit) {
         core.info("Cache hit! Restored prebuilt artifacts.");
       } else {
-        core.info("Cache miss. Will build from source.");
+        core.info("Cache miss.");
       }
     } catch (e: any) {
       core.warning(`Cache restore failed: ${e.message}`);
@@ -103,8 +104,33 @@ async function run() {
   }
 
   core.setOutput("cache-hit", String(cacheHit));
+  let restoreSource = cacheHit ? "github-cache" : "none";
 
-  if (!cacheHit) {
+  if (!cacheHit && core.getInput("restore-from-release") !== "false") {
+    const releaseOwner = core.getInput("release-owner") || "swiftwasm";
+    const releaseRepo =
+      core.getInput("release-repo") || "setup-swift-syntax-prebuilts";
+
+    core.startGroup("Restore from GitHub Release");
+    const releaseResult = await restoreFromRelease({
+      owner: releaseOwner,
+      repo: releaseRepo,
+      syntaxVersion,
+      compilerTag,
+      swiftMajorMinor,
+      platform: hostPlatform,
+      prebuiltsDir,
+    });
+    core.endGroup();
+
+    if (releaseResult.restored) {
+      restoreSource = "github-release";
+    } else {
+      core.info("No matching release assets found. Will build from source.");
+    }
+  }
+
+  if (restoreSource === "none") {
     // 5. Build
     core.startGroup("Build prebuilt SwiftSyntax");
     const { checksum } = await buildPrebuilt(
@@ -168,16 +194,20 @@ async function run() {
     mkdirSync(certsDest, { recursive: true });
     cpSync(signingCerts.rootCertPath, join(certsDest, "root-ca.cer"));
 
-    // 7. Save cache
-    if (cacheBackend === "github") {
-      try {
-        await cache.saveCache([prebuiltsDir], cacheKey);
-        core.info("Saved prebuilt artifacts to cache.");
-      } catch (e: any) {
-        core.warning(`Cache save failed: ${e.message}`);
-      }
+    restoreSource = "local-build";
+  }
+
+  // 7. Save cache. Release restores are cached in the consuming repository
+  // too, so later jobs do not need to hit GitHub Releases again.
+  if (!cacheHit && cacheBackend === "github") {
+    try {
+      await cache.saveCache([prebuiltsDir], cacheKey);
+      core.info("Saved prebuilt artifacts to cache.");
+    } catch (e: any) {
+      core.warning(`Cache save failed: ${e.message}`);
     }
   }
+  core.setOutput("restore-source", restoreSource);
 
   // 8. Export outputs
   const rootCert = join(prebuiltsDir, ".certs", "root-ca.cer");
@@ -198,6 +228,7 @@ async function run() {
 
   core.info(`\n\u2705 SwiftSyntax prebuilts ready!`);
   core.info(`   Version: ${syntaxVersion}`);
+  core.info(`   Restore source: ${restoreSource}`);
   core.info(`   Flags: ${flags}`);
 }
 
