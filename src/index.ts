@@ -84,7 +84,7 @@ async function run() {
   const signingCerts = resolveSigningCerts();
 
   // 4. Cache restore
-  const cacheKey = `swift-syntax-prebuilt-v5-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
+  const cacheKey = `swift-syntax-prebuilt-v6-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
   core.info(`Cache key: ${cacheKey}`);
 
   let cacheHit = false;
@@ -142,7 +142,21 @@ async function run() {
     core.endGroup();
 
     if (releaseResult.restored) {
-      restoreSource = "github-release";
+      const validation = validatePrebuilts(
+        prebuiltsDir,
+        syntaxVersion,
+        compilerTag,
+        hostPlatform
+      );
+      if (validation.ok) {
+        restoreSource = "github-release";
+      } else {
+        core.warning(
+          `Release restore succeeded, but restored prebuilts are not usable: ${validation.reason}`
+        );
+        rmSync(prebuiltsDir, { recursive: true, force: true });
+        core.info("Discarded release prebuilts. Will build from source.");
+      }
     } else {
       core.info("No matching release assets found. Will build from source.");
     }
