@@ -31,7 +31,7 @@ import { join, resolve } from "path";
 import { createHash } from "crypto";
 import { generateMainManifest, generateV1Manifest } from "./manifest";
 import { signManifest, defaultCertPaths, SigningCerts } from "./sign";
-import { findBuildArtifacts } from "./artifacts";
+import { copyModuleArtifacts, findBuildArtifacts } from "./artifacts";
 
 interface CliArgs {
   syntaxVersion: string;
@@ -125,21 +125,19 @@ package.products += [
 
   // 4. Stage artifacts
   console.error("Staging artifacts...");
-  const { libraryPath, modulesDir } = findBuildArtifacts(repoDir, {
+  const { libraryPath, moduleDirs } = findBuildArtifacts(repoDir, {
     info: (message) => console.error(message),
     warning: (message) => console.error(`Warning: ${message}`),
   });
   console.error(`Using MacroSupport library from ${libraryPath}`);
-  console.error(`Using Swift modules from ${modulesDir}`);
+  console.error(`Using Swift modules from ${moduleDirs.length} Modules directories`);
 
   mkdirSync(join(stageDir, "lib"), { recursive: true });
   cpSync(
     libraryPath,
     join(stageDir, "lib", "libMacroSupport.a")
   );
-  cpSync(modulesDir, join(stageDir, "Modules"), {
-    recursive: true,
-  });
+  copyModuleArtifacts(moduleDirs, join(stageDir, "Modules"));
 
   // 5. Create archive
   mkdirSync(outputDir, { recursive: true });

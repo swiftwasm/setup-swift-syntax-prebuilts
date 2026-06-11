@@ -6,11 +6,13 @@
  */
 
 // Products included in the MacroSupport prebuilt library
-const PRODUCTS = [
+export const PRODUCTS = [
   "SwiftBasicFormat",
   "SwiftCompilerPlugin",
   "SwiftDiagnostics",
   "SwiftIDEUtils",
+  "SwiftIfConfig",
+  "SwiftLexicalLookup",
   "SwiftOperators",
   "SwiftParser",
   "SwiftParserDiagnostics",
@@ -21,6 +23,7 @@ const PRODUCTS = [
   "SwiftSyntaxMacroExpansion",
   "SwiftSyntaxMacrosTestSupport",
   "SwiftSyntaxMacrosGenericTestSupport",
+  "SwiftWarningControl",
   "_SwiftCompilerPluginMessageHandling",
   "_SwiftLibraryPluginProvider",
 ];

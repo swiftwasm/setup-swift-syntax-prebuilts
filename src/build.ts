@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
-import { findBuildArtifacts } from "./artifacts";
+import { copyModuleArtifacts, findBuildArtifacts } from "./artifacts";
 
 export interface BuildResult {
   checksum: string;
@@ -72,12 +72,12 @@ package.products += [
 
   // 4. Stage lib/ and Modules/
   core.info("Staging build artifacts...");
-  const { libraryPath, modulesDir } = findBuildArtifacts(repoDir, {
+  const { libraryPath, moduleDirs } = findBuildArtifacts(repoDir, {
     info: (message) => core.info(message),
     warning: (message) => core.warning(message),
   });
   core.info(`Using MacroSupport library from ${libraryPath}`);
-  core.info(`Using Swift modules from ${modulesDir}`);
+  core.info(`Using Swift modules from ${moduleDirs.length} Modules directories`);
 
   mkdirSync(join(stageDir, "lib"), { recursive: true });
   cpSync(
@@ -85,8 +85,8 @@ package.products += [
     join(stageDir, "lib", "libMacroSupport.a")
   );
 
-  // Copy Modules directory (contains .swiftmodule files)
-  cpSync(modulesDir, join(stageDir, "Modules"), { recursive: true });
+  // SwiftPM native builds can emit one Modules directory per target.
+  copyModuleArtifacts(moduleDirs, join(stageDir, "Modules"));
 
   // 5. Create archive
   const outDir = join(prebuiltsDir, "swift-syntax", syntaxVersion);

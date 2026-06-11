@@ -60138,6 +60138,7 @@ module.exports = {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.copyModuleArtifacts = copyModuleArtifacts;
 exports.findBuildArtifacts = findBuildArtifacts;
 const fs_1 = __nccwpck_require__(79896);
 const path_1 = __nccwpck_require__(16928);
@@ -60145,23 +60146,27 @@ const MODULE_EXTENSIONS = [
     ".swiftmodule",
     ".swiftinterface",
     ".swiftdoc",
+    ".swiftsourceinfo",
     ".abi.json",
 ];
 function isDescendantOrSelf(parent, child) {
     const rel = (0, path_1.relative)(parent, child);
     return rel === "" || (!rel.startsWith("..") && !rel.startsWith(path_1.sep));
 }
+function isModuleCachePath(path) {
+    return path.split(path_1.sep).some((component) => component.startsWith("ModuleCache"));
+}
 function containsModuleArtifact(dir) {
     for (const entry of (0, fs_1.readdirSync)(dir)) {
         const path = (0, path_1.join)(dir, entry);
+        if (MODULE_EXTENSIONS.some((suffix) => entry.endsWith(suffix))) {
+            return true;
+        }
         const stat = (0, fs_1.statSync)(path);
         if (stat.isDirectory()) {
             if (containsModuleArtifact(path))
                 return true;
             continue;
-        }
-        if (MODULE_EXTENSIONS.some((suffix) => entry.endsWith(suffix))) {
-            return true;
         }
     }
     return false;
@@ -60176,6 +60181,12 @@ function discoverArtifacts(buildRoot) {
     function visit(dir) {
         for (const entry of (0, fs_1.readdirSync)(dir)) {
             const path = (0, path_1.join)(dir, entry);
+            if (isModuleCachePath(path)) {
+                continue;
+            }
+            if (MODULE_EXTENSIONS.some((suffix) => entry.endsWith(suffix))) {
+                discovery.moduleFiles.push(path);
+            }
             const stat = (0, fs_1.statSync)(path);
             if (stat.isDirectory()) {
                 if (entry === "Modules" && containsModuleArtifact(path)) {
@@ -60189,9 +60200,6 @@ function discoverArtifacts(buildRoot) {
             }
             if (entry.endsWith(".a")) {
                 discovery.archives.push(path);
-            }
-            if (MODULE_EXTENSIONS.some((suffix) => entry.endsWith(suffix))) {
-                discovery.moduleFiles.push(path);
             }
         }
     }
@@ -60225,6 +60233,57 @@ function findNearestModulesDir(libraryPath, moduleDirs) {
     });
     return sorted[0];
 }
+function sortModulesDirsForLibrary(libraryPath, moduleDirs) {
+    const libraryDir = (0, path_1.dirname)(libraryPath);
+    return [...moduleDirs].sort((a, b) => {
+        const aUnderLibraryDir = isDescendantOrSelf(libraryDir, a) ? 0 : 1;
+        const bUnderLibraryDir = isDescendantOrSelf(libraryDir, b) ? 0 : 1;
+        if (aUnderLibraryDir !== bUnderLibraryDir) {
+            return aUnderLibraryDir - bUnderLibraryDir;
+        }
+        const prefixDelta = commonPrefixLength(libraryDir, b) - commonPrefixLength(libraryDir, a);
+        if (prefixDelta !== 0) {
+            return prefixDelta;
+        }
+        return a.localeCompare(b);
+    });
+}
+function moduleName(path) {
+    const parent = (0, path_1.basename)((0, path_1.dirname)(path));
+    if (parent.endsWith(".swiftmodule")) {
+        return parent.slice(0, -".swiftmodule".length);
+    }
+    const file = (0, path_1.basename)(path);
+    for (const suffix of MODULE_EXTENSIONS) {
+        if (file.endsWith(suffix)) {
+            return file.slice(0, -suffix.length);
+        }
+    }
+    return file;
+}
+function formatModuleCoverage(buildRoot, moduleFiles) {
+    const modules = [...new Set(moduleFiles.map(moduleName))].sort();
+    if (modules.length === 0) {
+        return "Swift modules: none";
+    }
+    const shown = modules.slice(0, 120).map((name) => `  - ${name}`);
+    const remaining = modules.length - shown.length;
+    if (remaining > 0) {
+        shown.push(`  ... ${remaining} more`);
+    }
+    return `Swift modules:\n${shown.join("\n")}`;
+}
+function copyModuleArtifacts(moduleDirs, destination) {
+    (0, fs_1.mkdirSync)(destination, { recursive: true });
+    for (const moduleDir of moduleDirs) {
+        for (const entry of (0, fs_1.readdirSync)(moduleDir)) {
+            (0, fs_1.cpSync)((0, path_1.join)(moduleDir, entry), (0, path_1.join)(destination, entry), {
+                recursive: true,
+                force: true,
+            });
+        }
+    }
+}
 function formatList(title, buildRoot, values, limit = 80) {
     if (values.length === 0) {
         return `${title}: none`;
@@ -60250,14 +60309,16 @@ function findBuildArtifacts(repoDir, logger) {
     }
     const discovery = discoverArtifacts(buildRoot);
     const libraryPath = discovery.libraries[0];
-    const modulesDir = libraryPath
+    const nearestModulesDir = libraryPath
         ? findNearestModulesDir(libraryPath, discovery.moduleDirs)
         : undefined;
-    if (!libraryPath || !modulesDir) {
+    if (!libraryPath || !nearestModulesDir) {
         logDiagnostics(logger, buildRoot, discovery);
         throw new Error(`Could not find MacroSupport build artifacts under ${buildRoot}`);
     }
-    return { libraryPath, modulesDir };
+    const moduleDirs = sortModulesDirsForLibrary(libraryPath, discovery.moduleDirs);
+    logger.info(formatModuleCoverage(buildRoot, discovery.moduleFiles));
+    return { libraryPath, moduleDirs };
 }
 
 
@@ -60351,16 +60412,16 @@ package.products += [
     core.endGroup();
     // 4. Stage lib/ and Modules/
     core.info("Staging build artifacts...");
-    const { libraryPath, modulesDir } = (0, artifacts_1.findBuildArtifacts)(repoDir, {
+    const { libraryPath, moduleDirs } = (0, artifacts_1.findBuildArtifacts)(repoDir, {
         info: (message) => core.info(message),
         warning: (message) => core.warning(message),
     });
     core.info(`Using MacroSupport library from ${libraryPath}`);
-    core.info(`Using Swift modules from ${modulesDir}`);
+    core.info(`Using Swift modules from ${moduleDirs.length} Modules directories`);
     (0, fs_1.mkdirSync)((0, path_1.join)(stageDir, "lib"), { recursive: true });
     (0, fs_1.cpSync)(libraryPath, (0, path_1.join)(stageDir, "lib", "libMacroSupport.a"));
-    // Copy Modules directory (contains .swiftmodule files)
-    (0, fs_1.cpSync)(modulesDir, (0, path_1.join)(stageDir, "Modules"), { recursive: true });
+    // SwiftPM native builds can emit one Modules directory per target.
+    (0, artifacts_1.copyModuleArtifacts)(moduleDirs, (0, path_1.join)(stageDir, "Modules"));
     // 5. Create archive
     const outDir = (0, path_1.join)(prebuiltsDir, "swift-syntax", syntaxVersion);
     (0, fs_1.mkdirSync)(outDir, { recursive: true });
@@ -60624,14 +60685,17 @@ run().catch((err) => core.setFailed(err.message));
  * 6.1/6.2: single manifest with per-platform artifacts array
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.PRODUCTS = void 0;
 exports.generateMainManifest = generateMainManifest;
 exports.generateV1Manifest = generateV1Manifest;
 // Products included in the MacroSupport prebuilt library
-const PRODUCTS = [
+exports.PRODUCTS = [
     "SwiftBasicFormat",
     "SwiftCompilerPlugin",
     "SwiftDiagnostics",
     "SwiftIDEUtils",
+    "SwiftIfConfig",
+    "SwiftLexicalLookup",
     "SwiftOperators",
     "SwiftParser",
     "SwiftParserDiagnostics",
@@ -60642,6 +60706,7 @@ const PRODUCTS = [
     "SwiftSyntaxMacroExpansion",
     "SwiftSyntaxMacrosTestSupport",
     "SwiftSyntaxMacrosGenericTestSupport",
+    "SwiftWarningControl",
     "_SwiftCompilerPluginMessageHandling",
     "_SwiftLibraryPluginProvider",
 ];
@@ -60665,7 +60730,7 @@ function generateMainManifest(checksum) {
                 checksum,
                 includePath: INCLUDE_PATHS,
                 name: "MacroSupport",
-                products: PRODUCTS,
+                products: exports.PRODUCTS,
             },
         ],
     };
@@ -60685,7 +60750,7 @@ function generateV1Manifest(checksum, hostPlatform) {
                 ],
                 cModules: C_MODULES,
                 name: "MacroSupport",
-                products: PRODUCTS,
+                products: exports.PRODUCTS,
             },
         ],
         version: 1,

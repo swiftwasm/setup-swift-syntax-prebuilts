@@ -1,13 +1,15 @@
 import {
+  cpSync,
   existsSync,
+  mkdirSync,
   readdirSync,
   statSync,
 } from "fs";
-import { dirname, join, relative, sep } from "path";
+import { basename, dirname, join, relative, sep } from "path";
 
 export interface BuildArtifacts {
   libraryPath: string;
-  modulesDir: string;
+  moduleDirs: string[];
 }
 
 export interface ArtifactLogger {
@@ -26,6 +28,7 @@ const MODULE_EXTENSIONS = [
   ".swiftmodule",
   ".swiftinterface",
   ".swiftdoc",
+  ".swiftsourceinfo",
   ".abi.json",
 ];
 
@@ -34,17 +37,21 @@ function isDescendantOrSelf(parent: string, child: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !rel.startsWith(sep));
 }
 
+function isModuleCachePath(path: string): boolean {
+  return path.split(sep).some((component) => component.startsWith("ModuleCache"));
+}
+
 function containsModuleArtifact(dir: string): boolean {
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
+    if (MODULE_EXTENSIONS.some((suffix) => entry.endsWith(suffix))) {
+      return true;
+    }
+
     const stat = statSync(path);
     if (stat.isDirectory()) {
       if (containsModuleArtifact(path)) return true;
       continue;
-    }
-
-    if (MODULE_EXTENSIONS.some((suffix) => entry.endsWith(suffix))) {
-      return true;
     }
   }
 
@@ -62,6 +69,14 @@ function discoverArtifacts(buildRoot: string): Discovery {
   function visit(dir: string): void {
     for (const entry of readdirSync(dir)) {
       const path = join(dir, entry);
+      if (isModuleCachePath(path)) {
+        continue;
+      }
+
+      if (MODULE_EXTENSIONS.some((suffix) => entry.endsWith(suffix))) {
+        discovery.moduleFiles.push(path);
+      }
+
       const stat = statSync(path);
 
       if (stat.isDirectory()) {
@@ -77,9 +92,6 @@ function discoverArtifacts(buildRoot: string): Discovery {
       }
       if (entry.endsWith(".a")) {
         discovery.archives.push(path);
-      }
-      if (MODULE_EXTENSIONS.some((suffix) => entry.endsWith(suffix))) {
-        discovery.moduleFiles.push(path);
       }
     }
   }
@@ -122,6 +134,70 @@ function findNearestModulesDir(libraryPath: string, moduleDirs: string[]): strin
   return sorted[0];
 }
 
+function sortModulesDirsForLibrary(libraryPath: string, moduleDirs: string[]): string[] {
+  const libraryDir = dirname(libraryPath);
+
+  return [...moduleDirs].sort((a, b) => {
+    const aUnderLibraryDir = isDescendantOrSelf(libraryDir, a) ? 0 : 1;
+    const bUnderLibraryDir = isDescendantOrSelf(libraryDir, b) ? 0 : 1;
+    if (aUnderLibraryDir !== bUnderLibraryDir) {
+      return aUnderLibraryDir - bUnderLibraryDir;
+    }
+
+    const prefixDelta =
+      commonPrefixLength(libraryDir, b) - commonPrefixLength(libraryDir, a);
+    if (prefixDelta !== 0) {
+      return prefixDelta;
+    }
+
+    return a.localeCompare(b);
+  });
+}
+
+function moduleName(path: string): string {
+  const parent = basename(dirname(path));
+  if (parent.endsWith(".swiftmodule")) {
+    return parent.slice(0, -".swiftmodule".length);
+  }
+
+  const file = basename(path);
+  for (const suffix of MODULE_EXTENSIONS) {
+    if (file.endsWith(suffix)) {
+      return file.slice(0, -suffix.length);
+    }
+  }
+
+  return file;
+}
+
+function formatModuleCoverage(buildRoot: string, moduleFiles: string[]): string {
+  const modules = [...new Set(moduleFiles.map(moduleName))].sort();
+  if (modules.length === 0) {
+    return "Swift modules: none";
+  }
+
+  const shown = modules.slice(0, 120).map((name) => `  - ${name}`);
+  const remaining = modules.length - shown.length;
+  if (remaining > 0) {
+    shown.push(`  ... ${remaining} more`);
+  }
+
+  return `Swift modules:\n${shown.join("\n")}`;
+}
+
+export function copyModuleArtifacts(moduleDirs: string[], destination: string): void {
+  mkdirSync(destination, { recursive: true });
+
+  for (const moduleDir of moduleDirs) {
+    for (const entry of readdirSync(moduleDir)) {
+      cpSync(join(moduleDir, entry), join(destination, entry), {
+        recursive: true,
+        force: true,
+      });
+    }
+  }
+}
+
 function formatList(title: string, buildRoot: string, values: string[], limit = 80): string {
   if (values.length === 0) {
     return `${title}: none`;
@@ -156,16 +232,19 @@ export function findBuildArtifacts(repoDir: string, logger: ArtifactLogger): Bui
 
   const discovery = discoverArtifacts(buildRoot);
   const libraryPath = discovery.libraries[0];
-  const modulesDir = libraryPath
+  const nearestModulesDir = libraryPath
     ? findNearestModulesDir(libraryPath, discovery.moduleDirs)
     : undefined;
 
-  if (!libraryPath || !modulesDir) {
+  if (!libraryPath || !nearestModulesDir) {
     logDiagnostics(logger, buildRoot, discovery);
     throw new Error(
       `Could not find MacroSupport build artifacts under ${buildRoot}`
     );
   }
 
-  return { libraryPath, modulesDir };
+  const moduleDirs = sortModulesDirsForLibrary(libraryPath, discovery.moduleDirs);
+  logger.info(formatModuleCoverage(buildRoot, discovery.moduleFiles));
+
+  return { libraryPath, moduleDirs };
 }

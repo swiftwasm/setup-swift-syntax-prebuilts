@@ -4,6 +4,7 @@
  * Main branch: per-platform manifest, flat checksum
  * 6.1/6.2: single manifest with per-platform artifacts array
  */
+export declare const PRODUCTS: string[];
 export interface MainBranchManifest {
     libraries: Array<{
         checksum: string;

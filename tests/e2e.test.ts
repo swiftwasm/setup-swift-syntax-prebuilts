@@ -94,24 +94,54 @@ describe("e2e: build and consume prebuilts", () => {
     writeFileSync(
       join(projectDir, "Package.swift"),
       `// swift-tools-version: 6.0
+import CompilerPluginSupport
 import PackageDescription
 let package = Package(
     name: "TestProject",
+    platforms: [
+        .macOS(.v10_15),
+    ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.1"),
     ],
     targets: [
-        .target(name: "TestLib", dependencies: [
-            .product(name: "SwiftSyntax", package: "swift-syntax"),
+        .macro(name: "TestMacros", dependencies: [
+            .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+            .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
         ]),
+        .target(name: "TestLib", dependencies: ["TestMacros"]),
     ]
 )
 `
     );
     mkdirSync(join(projectDir, "Sources", "TestLib"), { recursive: true });
+    mkdirSync(join(projectDir, "Sources", "TestMacros"), { recursive: true });
     writeFileSync(
       join(projectDir, "Sources", "TestLib", "Lib.swift"),
-      'import SwiftSyntax\npublic func hello() -> String { "Hello" }\n'
+      'public func hello() -> String { "Hello" }\n'
+    );
+    writeFileSync(
+      join(projectDir, "Sources", "TestMacros", "TestMacros.swift"),
+      `import SwiftCompilerPlugin
+import SwiftSyntax
+import SwiftSyntaxMacros
+
+public struct NoopMacro: DeclarationMacro {
+  public static func expansion(
+    of node: some FreestandingMacroExpansionSyntax,
+    in context: some MacroExpansionContext
+  ) throws -> [DeclSyntax] {
+    []
+  }
+}
+
+@main
+struct TestPlugin: CompilerPlugin {
+  let providingMacros: [Macro.Type] = [
+    NoopMacro.self,
+  ]
+}
+`
     );
   });
 
@@ -155,10 +185,11 @@ let package = Package(
       rmSync(prebuiltsCache, { recursive: true });
     }
 
-    const { exitCode } = await getExecOutput(
+    const { exitCode, stderr, stdout } = await getExecOutput(
       "swift",
       [
         "build",
+        "--enable-experimental-prebuilts",
         "--experimental-prebuilts-download-url",
         `file://${prebuiltsDir}`,
         "--experimental-prebuilts-root-cert",
@@ -171,5 +202,23 @@ let package = Package(
     );
 
     assert.equal(exitCode, 0, "swift build should succeed with prebuilts");
+
+    if (hostPlatform === "macos_universal") {
+      return;
+    }
+
+    const output = `${stdout}\n${stderr}`;
+    assert.ok(
+      !output.includes("Compiling SwiftSyntax "),
+      "macro dependency SwiftSyntax should not be compiled from source"
+    );
+    assert.ok(
+      !output.includes("Compiling SwiftSyntaxMacros "),
+      "macro dependency SwiftSyntaxMacros should not be compiled from source"
+    );
+    assert.ok(
+      !output.includes("Compiling SwiftCompilerPlugin "),
+      "macro dependency SwiftCompilerPlugin should not be compiled from source"
+    );
   });
 });

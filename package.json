@@ -7,7 +7,7 @@
     "build": "ncc build src/index.ts -o dist && ncc build src/cli-build.ts -o dist/cli-build && ncc build src/cli-merge-v1-manifest.ts -o dist/cli-merge-v1-manifest",
     "typecheck": "tsc --noEmit",
     "pretest": "tsc -p tsconfig.test.json",
-    "test": "node --test lib-test/tests/resolve.test.js lib-test/tests/manifest.test.js lib-test/tests/sign.test.js lib-test/tests/x509.test.js lib-test/tests/toolchain.test.js lib-test/tests/worker.test.js lib-test/tests/release.test.js",
+    "test": "node --test lib-test/tests/resolve.test.js lib-test/tests/manifest.test.js lib-test/tests/sign.test.js lib-test/tests/x509.test.js lib-test/tests/toolchain.test.js lib-test/tests/worker.test.js lib-test/tests/release.test.js lib-test/tests/artifacts.test.js",
     "pretest:e2e": "tsc -p tsconfig.test.json",
     "test:e2e": "node --test lib-test/tests/e2e.test.js",
     "test:all": "npm test && npm run test:e2e"
