@@ -60491,6 +60491,7 @@ const build_1 = __nccwpck_require__(34323);
 const manifest_1 = __nccwpck_require__(25546);
 const sign_1 = __nccwpck_require__(12694);
 const release_1 = __nccwpck_require__(84202);
+const validate_1 = __nccwpck_require__(60397);
 /**
  * Determine the base directory for prebuilt artifacts.
  *
@@ -60549,7 +60550,7 @@ async function run() {
     // 3. Resolve signing certs
     const signingCerts = resolveSigningCerts();
     // 4. Cache restore
-    const cacheKey = `swift-syntax-prebuilt-v3-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
+    const cacheKey = `swift-syntax-prebuilt-v4-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
     core.info(`Cache key: ${cacheKey}`);
     let cacheHit = false;
     const cacheBackend = core.getInput("cache-backend") || "github";
@@ -60558,7 +60559,16 @@ async function run() {
             const restoredKey = await cache.restoreCache([prebuiltsDir], cacheKey);
             cacheHit = restoredKey === cacheKey;
             if (cacheHit) {
-                core.info("Cache hit! Restored prebuilt artifacts.");
+                const validation = (0, validate_1.validatePrebuilts)(prebuiltsDir, syntaxVersion, compilerTag, hostPlatform);
+                if (validation.ok) {
+                    core.info("Cache hit! Restored prebuilt artifacts.");
+                }
+                else {
+                    core.warning(`Cache hit, but restored prebuilts are not usable: ${validation.reason}`);
+                    (0, fs_1.rmSync)(prebuiltsDir, { recursive: true, force: true });
+                    cacheHit = false;
+                    core.info("Discarded restored prebuilts. Falling back to release restore or local build.");
+                }
             }
             else {
                 core.info("Cache miss.");
@@ -61182,6 +61192,106 @@ function parseOsRelease() {
     catch {
         return {};
     }
+}
+
+
+/***/ }),
+
+/***/ 60397:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.validatePrebuilts = validatePrebuilts;
+const fs_1 = __nccwpck_require__(79896);
+const path_1 = __nccwpck_require__(16928);
+const child_process_1 = __nccwpck_require__(35317);
+const REQUIRED_PRODUCTS = [
+    "SwiftBasicFormat",
+    "SwiftCompilerPlugin",
+    "SwiftParser",
+    "SwiftSyntax",
+    "SwiftSyntaxBuilder",
+    "SwiftSyntaxMacros",
+    "SwiftSyntaxMacroExpansion",
+];
+const REQUIRED_ARCHIVE_ENTRIES = [
+    "lib/libMacroSupport.a",
+    "Modules/SwiftBasicFormat.swiftmodule",
+    "Modules/SwiftCompilerPlugin.swiftmodule",
+    "Modules/SwiftParser.swiftmodule",
+    "Modules/SwiftSyntax.swiftmodule",
+    "Modules/SwiftSyntaxBuilder.swiftmodule",
+    "Modules/SwiftSyntaxMacros.swiftmodule",
+    "Modules/SwiftSyntaxMacroExpansion.swiftmodule",
+];
+function validateManifest(path) {
+    if (!(0, fs_1.existsSync)(path)) {
+        return { ok: false, reason: `missing manifest ${path}` };
+    }
+    let manifest;
+    try {
+        const signedManifest = JSON.parse((0, fs_1.readFileSync)(path, "utf-8"));
+        manifest = signedManifest.manifest ?? signedManifest;
+    }
+    catch (error) {
+        return { ok: false, reason: `invalid manifest JSON: ${error.message}` };
+    }
+    const products = manifest.libraries?.[0]?.products;
+    if (!Array.isArray(products)) {
+        return { ok: false, reason: "manifest does not contain library products" };
+    }
+    const missing = REQUIRED_PRODUCTS.filter((product) => !products.includes(product));
+    if (missing.length > 0) {
+        return {
+            ok: false,
+            reason: `manifest is missing products: ${missing.join(", ")}`,
+        };
+    }
+    return { ok: true };
+}
+function validateArchive(path) {
+    if (!(0, fs_1.existsSync)(path)) {
+        return { ok: false, reason: `missing archive ${path}` };
+    }
+    const result = (0, child_process_1.spawnSync)("tar", ["-tzf", path], {
+        encoding: "utf-8",
+        maxBuffer: 16 * 1024 * 1024,
+    });
+    if (result.status !== 0) {
+        return {
+            ok: false,
+            reason: `archive listing failed: ${result.stderr || result.stdout}`,
+        };
+    }
+    const entries = new Set(result.stdout.split(/\r?\n/).filter(Boolean));
+    const missing = REQUIRED_ARCHIVE_ENTRIES.filter((entry) => !entries.has(entry));
+    if (missing.length > 0) {
+        return {
+            ok: false,
+            reason: `archive is missing entries: ${missing.join(", ")}`,
+        };
+    }
+    return { ok: true };
+}
+function validatePrebuilts(prebuiltsDir, syntaxVersion, compilerTag, hostPlatform) {
+    const outDir = (0, path_1.join)(prebuiltsDir, "swift-syntax", syntaxVersion);
+    const manifestPath = (0, path_1.join)(outDir, `${compilerTag}-${hostPlatform}.json`);
+    const archivePath = (0, path_1.join)(outDir, `${compilerTag}-${hostPlatform}-MacroSupport.tar.gz`);
+    const rootCert = (0, path_1.join)(prebuiltsDir, ".certs", "root-ca.cer");
+    if (!(0, fs_1.existsSync)(rootCert)) {
+        return { ok: false, reason: `missing root certificate ${rootCert}` };
+    }
+    for (const result of [
+        validateManifest(manifestPath),
+        validateArchive(archivePath),
+    ]) {
+        if (!result.ok) {
+            return result;
+        }
+    }
+    return { ok: true };
 }
 
 

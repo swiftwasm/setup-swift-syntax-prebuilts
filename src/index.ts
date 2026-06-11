@@ -9,6 +9,7 @@ import { buildPrebuilt } from "./build";
 import { generateMainManifest, generateV1Manifest } from "./manifest";
 import { signManifest, defaultCertPaths, SigningCerts } from "./sign";
 import { restoreFromRelease } from "./release";
+import { validatePrebuilts } from "./validate";
 
 /**
  * Determine the base directory for prebuilt artifacts.
@@ -83,7 +84,7 @@ async function run() {
   const signingCerts = resolveSigningCerts();
 
   // 4. Cache restore
-  const cacheKey = `swift-syntax-prebuilt-v3-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
+  const cacheKey = `swift-syntax-prebuilt-v4-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
   core.info(`Cache key: ${cacheKey}`);
 
   let cacheHit = false;
@@ -94,7 +95,24 @@ async function run() {
       const restoredKey = await cache.restoreCache([prebuiltsDir], cacheKey);
       cacheHit = restoredKey === cacheKey;
       if (cacheHit) {
-        core.info("Cache hit! Restored prebuilt artifacts.");
+        const validation = validatePrebuilts(
+          prebuiltsDir,
+          syntaxVersion,
+          compilerTag,
+          hostPlatform
+        );
+        if (validation.ok) {
+          core.info("Cache hit! Restored prebuilt artifacts.");
+        } else {
+          core.warning(
+            `Cache hit, but restored prebuilts are not usable: ${validation.reason}`
+          );
+          rmSync(prebuiltsDir, { recursive: true, force: true });
+          cacheHit = false;
+          core.info(
+            "Discarded restored prebuilts. Falling back to release restore or local build."
+          );
+        }
       } else {
         core.info("Cache miss.");
       }
