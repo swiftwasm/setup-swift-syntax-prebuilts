@@ -20420,6 +20420,137 @@ var __createBinding;
 
 /***/ }),
 
+/***/ 8776:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.findBuildArtifacts = findBuildArtifacts;
+const fs_1 = __nccwpck_require__(9896);
+const path_1 = __nccwpck_require__(6928);
+const MODULE_EXTENSIONS = [
+    ".swiftmodule",
+    ".swiftinterface",
+    ".swiftdoc",
+    ".abi.json",
+];
+function isDescendantOrSelf(parent, child) {
+    const rel = (0, path_1.relative)(parent, child);
+    return rel === "" || (!rel.startsWith("..") && !rel.startsWith(path_1.sep));
+}
+function containsModuleArtifact(dir) {
+    for (const entry of (0, fs_1.readdirSync)(dir)) {
+        const path = (0, path_1.join)(dir, entry);
+        const stat = (0, fs_1.statSync)(path);
+        if (stat.isDirectory()) {
+            if (containsModuleArtifact(path))
+                return true;
+            continue;
+        }
+        if (MODULE_EXTENSIONS.some((suffix) => entry.endsWith(suffix))) {
+            return true;
+        }
+    }
+    return false;
+}
+function discoverArtifacts(buildRoot) {
+    const discovery = {
+        libraries: [],
+        moduleDirs: [],
+        moduleFiles: [],
+        archives: [],
+    };
+    function visit(dir) {
+        for (const entry of (0, fs_1.readdirSync)(dir)) {
+            const path = (0, path_1.join)(dir, entry);
+            const stat = (0, fs_1.statSync)(path);
+            if (stat.isDirectory()) {
+                if (entry === "Modules" && containsModuleArtifact(path)) {
+                    discovery.moduleDirs.push(path);
+                }
+                visit(path);
+                continue;
+            }
+            if (entry === "libMacroSupport.a") {
+                discovery.libraries.push(path);
+            }
+            if (entry.endsWith(".a")) {
+                discovery.archives.push(path);
+            }
+            if (MODULE_EXTENSIONS.some((suffix) => entry.endsWith(suffix))) {
+                discovery.moduleFiles.push(path);
+            }
+        }
+    }
+    visit(buildRoot);
+    discovery.libraries.sort();
+    discovery.moduleDirs.sort();
+    discovery.moduleFiles.sort();
+    discovery.archives.sort();
+    return discovery;
+}
+function commonPrefixLength(a, b) {
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) {
+        i++;
+    }
+    return i;
+}
+function findNearestModulesDir(libraryPath, moduleDirs) {
+    const libraryDir = (0, path_1.dirname)(libraryPath);
+    const sibling = (0, path_1.join)(libraryDir, "Modules");
+    if (moduleDirs.includes(sibling)) {
+        return sibling;
+    }
+    const sorted = [...moduleDirs].sort((a, b) => {
+        const aUnderLibraryDir = isDescendantOrSelf(libraryDir, a) ? 0 : 1;
+        const bUnderLibraryDir = isDescendantOrSelf(libraryDir, b) ? 0 : 1;
+        if (aUnderLibraryDir !== bUnderLibraryDir) {
+            return aUnderLibraryDir - bUnderLibraryDir;
+        }
+        return commonPrefixLength(libraryDir, b) - commonPrefixLength(libraryDir, a);
+    });
+    return sorted[0];
+}
+function formatList(title, buildRoot, values, limit = 80) {
+    if (values.length === 0) {
+        return `${title}: none`;
+    }
+    const shown = values.slice(0, limit).map((path) => `  - ${(0, path_1.relative)(buildRoot, path)}`);
+    const remaining = values.length - shown.length;
+    if (remaining > 0) {
+        shown.push(`  ... ${remaining} more`);
+    }
+    return `${title}:\n${shown.join("\n")}`;
+}
+function logDiagnostics(logger, buildRoot, discovery) {
+    logger.warning("Could not pair MacroSupport library and Swift module artifacts.");
+    logger.info(formatList("MacroSupport libraries", buildRoot, discovery.libraries));
+    logger.info(formatList("Archives", buildRoot, discovery.archives));
+    logger.info(formatList("Modules directories", buildRoot, discovery.moduleDirs));
+    logger.info(formatList("Swift module files", buildRoot, discovery.moduleFiles));
+}
+function findBuildArtifacts(repoDir, logger) {
+    const buildRoot = (0, path_1.join)(repoDir, ".build");
+    if (!(0, fs_1.existsSync)(buildRoot)) {
+        throw new Error(`SwiftPM build directory does not exist: ${buildRoot}`);
+    }
+    const discovery = discoverArtifacts(buildRoot);
+    const libraryPath = discovery.libraries[0];
+    const modulesDir = libraryPath
+        ? findNearestModulesDir(libraryPath, discovery.moduleDirs)
+        : undefined;
+    if (!libraryPath || !modulesDir) {
+        logDiagnostics(logger, buildRoot, discovery);
+        throw new Error(`Could not find MacroSupport build artifacts under ${buildRoot}`);
+    }
+    return { libraryPath, modulesDir };
+}
+
+
+/***/ }),
+
 /***/ 5546:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -22249,6 +22380,7 @@ const path_1 = __nccwpck_require__(6928);
 const crypto_1 = __nccwpck_require__(6982);
 const manifest_1 = __nccwpck_require__(5546);
 const sign_1 = __nccwpck_require__(2694);
+const artifacts_1 = __nccwpck_require__(8776);
 function parseArgs() {
     const args = process.argv.slice(2);
     const parsed = {};
@@ -22286,32 +22418,6 @@ function exec(command, options) {
 function execCapture(command, options) {
     return (0, child_process_1.execSync)(command, { encoding: "utf-8", ...options }).trim();
 }
-function findReleaseBuildDir(repoDir) {
-    const buildRoot = (0, path_1.join)(repoDir, ".build");
-    const candidates = [];
-    function visit(dir) {
-        for (const entry of (0, fs_1.readdirSync)(dir)) {
-            const path = (0, path_1.join)(dir, entry);
-            if (!(0, fs_1.statSync)(path).isDirectory())
-                continue;
-            if ((0, fs_1.existsSync)((0, path_1.join)(path, "libMacroSupport.a")) &&
-                (0, fs_1.existsSync)((0, path_1.join)(path, "Modules"))) {
-                candidates.push(path);
-            }
-            visit(path);
-        }
-    }
-    visit(buildRoot);
-    if (candidates.length === 0) {
-        throw new Error(`Could not find MacroSupport build artifacts under ${buildRoot}`);
-    }
-    candidates.sort((a, b) => {
-        const aRelease = a.endsWith("/release") ? 0 : 1;
-        const bRelease = b.endsWith("/release") ? 0 : 1;
-        return aRelease - bRelease || a.localeCompare(b);
-    });
-    return candidates[0];
-}
 async function buildPrebuilt(syntaxVersion, compilerTag, platform, outputDir) {
     const workdir = (0, fs_1.mkdtempSync)((0, path_1.join)((0, os_1.tmpdir)(), "swift-syntax-build-"));
     const repoDir = (0, path_1.join)(workdir, "swift-syntax");
@@ -22338,11 +22444,15 @@ package.products += [
     });
     // 4. Stage artifacts
     console.error("Staging artifacts...");
-    const buildDir = findReleaseBuildDir(repoDir);
-    console.error(`Using build artifacts from ${buildDir}`);
+    const { libraryPath, modulesDir } = (0, artifacts_1.findBuildArtifacts)(repoDir, {
+        info: (message) => console.error(message),
+        warning: (message) => console.error(`Warning: ${message}`),
+    });
+    console.error(`Using MacroSupport library from ${libraryPath}`);
+    console.error(`Using Swift modules from ${modulesDir}`);
     (0, fs_1.mkdirSync)((0, path_1.join)(stageDir, "lib"), { recursive: true });
-    (0, fs_1.cpSync)((0, path_1.join)(buildDir, "libMacroSupport.a"), (0, path_1.join)(stageDir, "lib", "libMacroSupport.a"));
-    (0, fs_1.cpSync)((0, path_1.join)(buildDir, "Modules"), (0, path_1.join)(stageDir, "Modules"), {
+    (0, fs_1.cpSync)(libraryPath, (0, path_1.join)(stageDir, "lib", "libMacroSupport.a"));
+    (0, fs_1.cpSync)(modulesDir, (0, path_1.join)(stageDir, "Modules"), {
         recursive: true,
     });
     // 5. Create archive
