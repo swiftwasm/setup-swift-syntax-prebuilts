@@ -10,6 +10,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { execFileSync } from "child_process";
 import { validatePrebuilts } from "../src/validate";
+import { encodeSwiftPrettyJSON } from "../src/sign";
 
 const SYNTAX_VERSION = "603.0.2";
 const COMPILER_TAG = "swift-DEVELOPMENT-SNAPSHOT-2026-05-27-a";
@@ -20,7 +21,34 @@ function writeFile(path: string, contents = ""): void {
   writeFileSync(path, contents);
 }
 
-function writeManifest(prebuiltsDir: string): void {
+const MANIFEST = {
+  libraries: [
+    {
+      name: "MacroSupport",
+      checksum: "unused",
+      includePath: [],
+      products: [
+        "SwiftBasicFormat",
+        "SwiftCompilerPlugin",
+        "SwiftParser",
+        "SwiftSyntax",
+        "SwiftSyntaxBuilder",
+        "SwiftSyntaxMacros",
+        "SwiftSyntaxMacroExpansion",
+      ],
+    },
+  ],
+};
+
+function fakeJWS(payload: string): string {
+  return [
+    Buffer.from("{}").toString("base64url"),
+    Buffer.from(payload).toString("base64url"),
+    Buffer.from("signature").toString("base64url"),
+  ].join(".");
+}
+
+function writeManifest(prebuiltsDir: string, payload = encodeSwiftPrettyJSON(MANIFEST)): void {
   writeFile(
     join(
       prebuiltsDir,
@@ -29,25 +57,10 @@ function writeManifest(prebuiltsDir: string): void {
       `${COMPILER_TAG}-${HOST_PLATFORM}.json`
     ),
     JSON.stringify({
-      manifest: {
-        libraries: [
-          {
-            name: "MacroSupport",
-            checksum: "unused",
-            includePath: [],
-            products: [
-              "SwiftBasicFormat",
-              "SwiftCompilerPlugin",
-              "SwiftParser",
-              "SwiftSyntax",
-              "SwiftSyntaxBuilder",
-              "SwiftSyntaxMacros",
-              "SwiftSyntaxMacroExpansion",
-            ],
-          },
-        ],
+      manifest: MANIFEST,
+      signature: {
+        signature: fakeJWS(payload),
       },
-      signature: {},
     })
   );
 }
@@ -122,6 +135,37 @@ describe("prebuilt validation", () => {
 
       assert.equal(result.ok, false);
       assert.match(result.reason ?? "", /SwiftSyntax\.swiftmodule/);
+    } finally {
+      rmSync(prebuiltsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects restored prebuilts with a non-SwiftPM manifest payload", () => {
+    const prebuiltsDir = mkdtempSync(join(tmpdir(), "validate-prebuilts-"));
+
+    try {
+      writeFile(join(prebuiltsDir, ".certs", "root-ca.cer"));
+      writeManifest(prebuiltsDir, JSON.stringify(MANIFEST, null, 2));
+      writeArchive(prebuiltsDir, [
+        "lib/libMacroSupport.a",
+        "Modules/SwiftBasicFormat.swiftmodule",
+        "Modules/SwiftCompilerPlugin.swiftmodule",
+        "Modules/SwiftParser.swiftmodule",
+        "Modules/SwiftSyntax.swiftmodule",
+        "Modules/SwiftSyntaxBuilder.swiftmodule",
+        "Modules/SwiftSyntaxMacros.swiftmodule",
+        "Modules/SwiftSyntaxMacroExpansion.swiftmodule",
+      ]);
+
+      const result = validatePrebuilts(
+        prebuiltsDir,
+        SYNTAX_VERSION,
+        COMPILER_TAG,
+        HOST_PLATFORM
+      );
+
+      assert.equal(result.ok, false);
+      assert.match(result.reason ?? "", /canonical manifest encoding/);
     } finally {
       rmSync(prebuiltsDir, { recursive: true, force: true });
     }

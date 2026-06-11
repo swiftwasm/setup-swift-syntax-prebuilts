@@ -22,13 +22,50 @@ export function sortKeysDeep(obj: any): any {
 }
 
 /**
- * Encode a manifest object to match Swift's JSONEncoder.makeWithDefaults(prettified: true).
- * Swift uses: sortedKeys, prettyPrinted (2-space indent), withoutEscapingSlashes
+ * Encode a manifest object to match Swift's
+ * JSONEncoder.makeWithDefaults(prettified: true). Foundation's pretty JSON
+ * format uses spaces around colons (`"key" : value`), unlike JSON.stringify.
  */
+export function encodeSwiftPrettyJSON(value: any, indent = 0): string {
+  const pad = " ".repeat(indent);
+  const nextPad = " ".repeat(indent + 2);
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return "[]";
+    }
+    return [
+      "[",
+      value.map((item) => `${nextPad}${encodeSwiftPrettyJSON(item, indent + 2)}`).join(",\n"),
+      `${pad}]`,
+    ].join("\n");
+  }
+
+  if (value !== null && typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    if (keys.length === 0) {
+      return "{}";
+    }
+    return [
+      "{",
+      keys
+        .map(
+          (key) =>
+            `${nextPad}${JSON.stringify(key)} : ${encodeSwiftPrettyJSON(
+              value[key],
+              indent + 2
+            )}`
+        )
+        .join(",\n"),
+      `${pad}}`,
+    ].join("\n");
+  }
+
+  return JSON.stringify(value);
+}
+
 function encodeManifestPayload(manifest: object): Uint8Array {
-  const sorted = sortKeysDeep(manifest);
-  const json = JSON.stringify(sorted, null, 2);
-  return new TextEncoder().encode(json);
+  return new TextEncoder().encode(encodeSwiftPrettyJSON(manifest));
 }
 
 export interface SigningCerts {

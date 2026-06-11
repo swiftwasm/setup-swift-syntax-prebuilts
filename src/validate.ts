@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { spawnSync } from "child_process";
+import { encodeSwiftPrettyJSON } from "./sign";
 
 const REQUIRED_PRODUCTS = [
   "SwiftBasicFormat",
@@ -33,12 +34,33 @@ function validateManifest(path: string): ValidationResult {
     return { ok: false, reason: `missing manifest ${path}` };
   }
 
+  let signedManifest: any;
   let manifest: any;
   try {
-    const signedManifest = JSON.parse(readFileSync(path, "utf-8"));
+    signedManifest = JSON.parse(readFileSync(path, "utf-8"));
     manifest = signedManifest.manifest ?? signedManifest;
   } catch (error: any) {
     return { ok: false, reason: `invalid manifest JSON: ${error.message}` };
+  }
+
+  const signature = signedManifest.signature?.signature;
+  if (typeof signature !== "string") {
+    return { ok: false, reason: "manifest does not contain a JWS signature" };
+  }
+
+  const jwsParts = signature.split(".");
+  if (jwsParts.length !== 3) {
+    return { ok: false, reason: "manifest JWS signature is malformed" };
+  }
+
+  const payload = Buffer.from(jwsParts[1], "base64url").toString("utf-8");
+  const expectedPayload = encodeSwiftPrettyJSON(manifest);
+  if (payload !== expectedPayload) {
+    return {
+      ok: false,
+      reason:
+        "manifest JWS payload does not match SwiftPM's canonical manifest encoding",
+    };
   }
 
   const products = manifest.libraries?.[0]?.products;

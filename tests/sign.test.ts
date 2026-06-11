@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { signManifest, sortKeysDeep, defaultCertPaths } from "../src/sign";
+import {
+  defaultCertPaths,
+  encodeSwiftPrettyJSON,
+  signManifest,
+  sortKeysDeep,
+} from "../src/sign";
 import { generateMainManifest, generateV1Manifest } from "../src/manifest";
 import { CERTS_DIR } from "./helpers";
 
@@ -42,6 +47,42 @@ describe("sortKeysDeep", () => {
     assert.equal(sortKeysDeep("hello"), "hello");
     assert.equal(sortKeysDeep(null), null);
     assert.equal(sortKeysDeep(true), true);
+  });
+});
+
+describe("encodeSwiftPrettyJSON", () => {
+  it("matches Foundation JSONEncoder pretty colon spacing", () => {
+    assert.equal(
+      encodeSwiftPrettyJSON({
+        libraries: [
+          {
+            checksum: "abc",
+            includePath: [
+              "Sources/_SwiftSyntaxCShims/include",
+              "Sources/_SwiftLibraryPluginProviderCShims/include",
+            ],
+            name: "MacroSupport",
+            products: ["SwiftBasicFormat", "SwiftCompilerPlugin"],
+          },
+        ],
+      }),
+      `{
+  "libraries" : [
+    {
+      "checksum" : "abc",
+      "includePath" : [
+        "Sources/_SwiftSyntaxCShims/include",
+        "Sources/_SwiftLibraryPluginProviderCShims/include"
+      ],
+      "name" : "MacroSupport",
+      "products" : [
+        "SwiftBasicFormat",
+        "SwiftCompilerPlugin"
+      ]
+    }
+  ]
+}`
+    );
   });
 });
 

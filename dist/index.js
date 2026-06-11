@@ -60550,7 +60550,7 @@ async function run() {
     // 3. Resolve signing certs
     const signingCerts = resolveSigningCerts();
     // 4. Cache restore
-    const cacheKey = `swift-syntax-prebuilt-v4-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
+    const cacheKey = `swift-syntax-prebuilt-v5-${compilerTag}-${hostPlatform}-${syntaxVersion}`;
     core.info(`Cache key: ${cacheKey}`);
     let cacheHit = false;
     const cacheBackend = core.getInput("cache-backend") || "github";
@@ -61013,6 +61013,7 @@ async function resolveSyntaxVersion(inputVersion, packageResolvedPath) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.sortKeysDeep = sortKeysDeep;
+exports.encodeSwiftPrettyJSON = encodeSwiftPrettyJSON;
 exports.defaultCertPaths = defaultCertPaths;
 exports.signManifest = signManifest;
 const jose_1 = __nccwpck_require__(21608);
@@ -61038,13 +61039,40 @@ function sortKeysDeep(obj) {
     return obj;
 }
 /**
- * Encode a manifest object to match Swift's JSONEncoder.makeWithDefaults(prettified: true).
- * Swift uses: sortedKeys, prettyPrinted (2-space indent), withoutEscapingSlashes
+ * Encode a manifest object to match Swift's
+ * JSONEncoder.makeWithDefaults(prettified: true). Foundation's pretty JSON
+ * format uses spaces around colons (`"key" : value`), unlike JSON.stringify.
  */
+function encodeSwiftPrettyJSON(value, indent = 0) {
+    const pad = " ".repeat(indent);
+    const nextPad = " ".repeat(indent + 2);
+    if (Array.isArray(value)) {
+        if (value.length === 0) {
+            return "[]";
+        }
+        return [
+            "[",
+            value.map((item) => `${nextPad}${encodeSwiftPrettyJSON(item, indent + 2)}`).join(",\n"),
+            `${pad}]`,
+        ].join("\n");
+    }
+    if (value !== null && typeof value === "object") {
+        const keys = Object.keys(value).sort();
+        if (keys.length === 0) {
+            return "{}";
+        }
+        return [
+            "{",
+            keys
+                .map((key) => `${nextPad}${JSON.stringify(key)} : ${encodeSwiftPrettyJSON(value[key], indent + 2)}`)
+                .join(",\n"),
+            `${pad}}`,
+        ].join("\n");
+    }
+    return JSON.stringify(value);
+}
 function encodeManifestPayload(manifest) {
-    const sorted = sortKeysDeep(manifest);
-    const json = JSON.stringify(sorted, null, 2);
-    return new TextEncoder().encode(json);
+    return new TextEncoder().encode(encodeSwiftPrettyJSON(manifest));
 }
 /** Default bundled certificate paths. */
 function defaultCertPaths(certsDir) {
@@ -61207,6 +61235,7 @@ exports.validatePrebuilts = validatePrebuilts;
 const fs_1 = __nccwpck_require__(79896);
 const path_1 = __nccwpck_require__(16928);
 const child_process_1 = __nccwpck_require__(35317);
+const sign_1 = __nccwpck_require__(12694);
 const REQUIRED_PRODUCTS = [
     "SwiftBasicFormat",
     "SwiftCompilerPlugin",
@@ -61230,13 +61259,30 @@ function validateManifest(path) {
     if (!(0, fs_1.existsSync)(path)) {
         return { ok: false, reason: `missing manifest ${path}` };
     }
+    let signedManifest;
     let manifest;
     try {
-        const signedManifest = JSON.parse((0, fs_1.readFileSync)(path, "utf-8"));
+        signedManifest = JSON.parse((0, fs_1.readFileSync)(path, "utf-8"));
         manifest = signedManifest.manifest ?? signedManifest;
     }
     catch (error) {
         return { ok: false, reason: `invalid manifest JSON: ${error.message}` };
+    }
+    const signature = signedManifest.signature?.signature;
+    if (typeof signature !== "string") {
+        return { ok: false, reason: "manifest does not contain a JWS signature" };
+    }
+    const jwsParts = signature.split(".");
+    if (jwsParts.length !== 3) {
+        return { ok: false, reason: "manifest JWS signature is malformed" };
+    }
+    const payload = Buffer.from(jwsParts[1], "base64url").toString("utf-8");
+    const expectedPayload = (0, sign_1.encodeSwiftPrettyJSON)(manifest);
+    if (payload !== expectedPayload) {
+        return {
+            ok: false,
+            reason: "manifest JWS payload does not match SwiftPM's canonical manifest encoding",
+        };
     }
     const products = manifest.libraries?.[0]?.products;
     if (!Array.isArray(products)) {
