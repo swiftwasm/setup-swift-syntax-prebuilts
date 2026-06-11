@@ -60293,6 +60293,7 @@ const resolve_1 = __nccwpck_require__(21259);
 const build_1 = __nccwpck_require__(34323);
 const manifest_1 = __nccwpck_require__(25546);
 const sign_1 = __nccwpck_require__(12694);
+const release_1 = __nccwpck_require__(84202);
 /**
  * Determine the base directory for prebuilt artifacts.
  *
@@ -60363,7 +60364,7 @@ async function run() {
                 core.info("Cache hit! Restored prebuilt artifacts.");
             }
             else {
-                core.info("Cache miss. Will build from source.");
+                core.info("Cache miss.");
             }
         }
         catch (e) {
@@ -60371,7 +60372,29 @@ async function run() {
         }
     }
     core.setOutput("cache-hit", String(cacheHit));
-    if (!cacheHit) {
+    let restoreSource = cacheHit ? "github-cache" : "none";
+    if (!cacheHit && core.getInput("restore-from-release") !== "false") {
+        const releaseOwner = core.getInput("release-owner") || "swiftwasm";
+        const releaseRepo = core.getInput("release-repo") || "setup-swift-syntax-prebuilts";
+        core.startGroup("Restore from GitHub Release");
+        const releaseResult = await (0, release_1.restoreFromRelease)({
+            owner: releaseOwner,
+            repo: releaseRepo,
+            syntaxVersion,
+            compilerTag,
+            swiftMajorMinor,
+            platform: hostPlatform,
+            prebuiltsDir,
+        });
+        core.endGroup();
+        if (releaseResult.restored) {
+            restoreSource = "github-release";
+        }
+        else {
+            core.info("No matching release assets found. Will build from source.");
+        }
+    }
+    if (restoreSource === "none") {
         // 5. Build
         core.startGroup("Build prebuilt SwiftSyntax");
         const { checksum } = await (0, build_1.buildPrebuilt)(syntaxVersion, compilerTag, hostPlatform, prebuiltsDir);
@@ -60415,17 +60438,20 @@ async function run() {
         const certsDest = (0, path_1.join)(prebuiltsDir, ".certs");
         (0, fs_1.mkdirSync)(certsDest, { recursive: true });
         (0, fs_1.cpSync)(signingCerts.rootCertPath, (0, path_1.join)(certsDest, "root-ca.cer"));
-        // 7. Save cache
-        if (cacheBackend === "github") {
-            try {
-                await cache.saveCache([prebuiltsDir], cacheKey);
-                core.info("Saved prebuilt artifacts to cache.");
-            }
-            catch (e) {
-                core.warning(`Cache save failed: ${e.message}`);
-            }
+        restoreSource = "local-build";
+    }
+    // 7. Save cache. Release restores are cached in the consuming repository
+    // too, so later jobs do not need to hit GitHub Releases again.
+    if (!cacheHit && cacheBackend === "github") {
+        try {
+            await cache.saveCache([prebuiltsDir], cacheKey);
+            core.info("Saved prebuilt artifacts to cache.");
+        }
+        catch (e) {
+            core.warning(`Cache save failed: ${e.message}`);
         }
     }
+    core.setOutput("restore-source", restoreSource);
     // 8. Export outputs
     const rootCert = (0, path_1.join)(prebuiltsDir, ".certs", "root-ca.cer");
     const certPath = (0, fs_1.existsSync)(rootCert)
@@ -60442,6 +60468,7 @@ async function run() {
     core.setOutput("prebuilts-path", prebuiltsDir);
     core.info(`\n\u2705 SwiftSyntax prebuilts ready!`);
     core.info(`   Version: ${syntaxVersion}`);
+    core.info(`   Restore source: ${restoreSource}`);
     core.info(`   Flags: ${flags}`);
 }
 run().catch((err) => core.setFailed(err.message));
@@ -60527,6 +60554,136 @@ function generateV1Manifest(checksum, hostPlatform) {
         ],
         version: 1,
     };
+}
+
+
+/***/ }),
+
+/***/ 84202:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.releaseDownloadUrl = releaseDownloadUrl;
+exports.restoreFromRelease = restoreFromRelease;
+const fs_1 = __nccwpck_require__(79896);
+const http_1 = __nccwpck_require__(58611);
+const https_1 = __nccwpck_require__(65692);
+const path_1 = __nccwpck_require__(16928);
+const core = __importStar(__nccwpck_require__(37484));
+function releaseTag(syntaxVersion, compilerTag) {
+    return `prebuilt-${syntaxVersion}-${compilerTag}`;
+}
+function releaseDownloadUrl(owner, repo, syntaxVersion, compilerTag, filename) {
+    const tag = releaseTag(syntaxVersion, compilerTag);
+    return `https://github.com/${owner}/${repo}/releases/download/${tag}/${filename}`;
+}
+function getRequiredAssets(compilerTag, swiftMajorMinor, platform) {
+    const assets = [
+        `${compilerTag}-${platform}.json`,
+        `${compilerTag}-${platform}-MacroSupport.tar.gz`,
+        "root-ca.cer",
+    ];
+    if (swiftMajorMinor) {
+        assets.push(`${swiftMajorMinor}-manifest.json`, `${swiftMajorMinor}-MacroSupport-${platform}.tar.gz`);
+    }
+    return assets;
+}
+function download(url, destination, redirects = 5) {
+    const client = url.startsWith("https:") ? https_1.get : http_1.get;
+    return new Promise((resolve, reject) => {
+        const request = client(url, (response) => {
+            const status = response.statusCode ?? 0;
+            const location = response.headers.location;
+            if (status >= 300 && status < 400 && location && redirects > 0) {
+                response.resume();
+                const redirected = new URL(location, url).toString();
+                download(redirected, destination, redirects - 1).then(resolve, reject);
+                return;
+            }
+            if (status !== 200) {
+                response.resume();
+                reject(new Error(`HTTP ${status}`));
+                return;
+            }
+            (0, fs_1.mkdirSync)((0, path_1.dirname)(destination), { recursive: true });
+            const tmp = `${destination}.tmp-${process.pid}`;
+            const file = (0, fs_1.createWriteStream)(tmp);
+            response.pipe(file);
+            file.on("finish", () => {
+                file.close(() => {
+                    (0, fs_1.renameSync)(tmp, destination);
+                    resolve();
+                });
+            });
+            file.on("error", (err) => {
+                (0, fs_1.rmSync)(tmp, { force: true });
+                reject(err);
+            });
+        });
+        request.on("error", reject);
+    });
+}
+async function restoreFromRelease(options) {
+    const outDir = (0, path_1.join)(options.prebuiltsDir, "swift-syntax", options.syntaxVersion);
+    const certsDir = (0, path_1.join)(options.prebuiltsDir, ".certs");
+    const files = [];
+    for (const asset of getRequiredAssets(options.compilerTag, options.swiftMajorMinor, options.platform)) {
+        const destination = asset === "root-ca.cer" ? (0, path_1.join)(certsDir, asset) : (0, path_1.join)(outDir, asset);
+        const url = releaseDownloadUrl(options.owner, options.repo, options.syntaxVersion, options.compilerTag, asset);
+        try {
+            core.info(`Downloading ${asset} from ${releaseTag(options.syntaxVersion, options.compilerTag)}`);
+            await download(url, destination);
+            files.push(destination);
+        }
+        catch (err) {
+            core.info(`Release asset not available: ${asset} (${err.message})`);
+            (0, fs_1.rmSync)(outDir, { recursive: true, force: true });
+            if ((0, fs_1.existsSync)((0, path_1.join)(certsDir, "root-ca.cer"))) {
+                (0, fs_1.rmSync)((0, path_1.join)(certsDir, "root-ca.cer"), { force: true });
+            }
+            return { restored: false, files: [] };
+        }
+    }
+    core.info(`Restored ${files.length} files from GitHub Release.`);
+    for (const file of files) {
+        core.info(`  ${(0, path_1.basename)(file)}`);
+    }
+    return { restored: true, files };
 }
 
 

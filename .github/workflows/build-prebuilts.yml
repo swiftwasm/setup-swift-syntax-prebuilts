@@ -23,6 +23,26 @@ on:
         required: false
         type: string
         default: ''
+      swift-download-url:
+        description: 'Optional fallback Linux Swift toolchain tarball URL.'
+        required: false
+        type: string
+        default: ''
+      ubuntu-22-download-url:
+        description: 'Optional Swift toolchain tarball URL for ubuntu-22.04.'
+        required: false
+        type: string
+        default: ''
+      ubuntu-24-download-url:
+        description: 'Optional Swift toolchain tarball URL for ubuntu-24.04.'
+        required: false
+        type: string
+        default: ''
+      include-macos:
+        description: 'Build macOS artifacts too.'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -45,15 +65,41 @@ jobs:
             platform: macos_universal
             swift-version: ''
     steps:
+      - name: Select platform
+        id: platform
+        run: |
+          enabled=true
+          download_url=""
+
+          case "${{ matrix.platform }}" in
+            ubuntu_jammy_x86_64)
+              download_url="${{ inputs['ubuntu-22-download-url'] || inputs['swift-download-url'] }}"
+              ;;
+            ubuntu_noble_x86_64)
+              download_url="${{ inputs['ubuntu-24-download-url'] || inputs['swift-download-url'] }}"
+              ;;
+            macos_universal)
+              if [ "${{ inputs.include-macos }}" != "true" ]; then
+                enabled=false
+              fi
+              ;;
+          esac
+
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+          echo "download-url=$download_url" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        if: steps.platform.outputs.enabled == 'true'
 
       - uses: actions/setup-node@v4
+        if: steps.platform.outputs.enabled == 'true'
         with:
           node-version: '20'
           cache: 'npm'
 
       - name: Determine Swift version to install
         id: swift-version
+        if: steps.platform.outputs.enabled == 'true' && steps.platform.outputs['download-url'] == ''
         run: |
           TAG="${{ inputs.compiler-tag }}"
           # Extract installable version from compiler tag
@@ -71,7 +117,32 @@ jobs:
             exit 1
           fi
 
+      - name: Install Swift from tarball
+        if: steps.platform.outputs.enabled == 'true' && steps.platform.outputs['download-url'] != ''
+        run: |
+          sudo apt-get -q update
+          sudo apt-get install -y \
+            binutils \
+            git \
+            gnupg2 \
+            libc6-dev \
+            libcurl4-openssl-dev \
+            libedit2 \
+            libgcc-9-dev \
+            libpython3.8 \
+            libsqlite3-0 \
+            libstdc++-9-dev \
+            libxml2-dev \
+            libz3-dev \
+            pkg-config \
+            tzdata \
+            unzip \
+            zlib1g-dev \
+            curl
+          curl -fL "${{ steps.platform.outputs['download-url'] }}" | sudo tar xfz - --strip-components=2 -C /usr/local
+
       - uses: swift-actions/setup-swift@v3
+        if: steps.platform.outputs.enabled == 'true' && steps.platform.outputs['download-url'] == ''
         id: setup-swift
         continue-on-error: true
         with:
@@ -79,14 +150,18 @@ jobs:
           skip-verify-signature: ${{ runner.os == 'Linux' }}
 
       - name: Verify Swift installation
+        if: steps.platform.outputs.enabled == 'true'
         run: swift --version
 
       - run: npm ci
+        if: steps.platform.outputs.enabled == 'true'
 
       - name: Build dist
+        if: steps.platform.outputs.enabled == 'true'
         run: npm run build
 
       - name: Build prebuilt
+        if: steps.platform.outputs.enabled == 'true'
         run: |
           mkdir -p ./prebuilt-output
           node dist/cli-build/index.js \
@@ -99,6 +174,7 @@ jobs:
         timeout-minutes: 15
 
       - name: Upload platform artifacts
+        if: steps.platform.outputs.enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: prebuilt-${{ matrix.platform }}
