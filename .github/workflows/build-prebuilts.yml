@@ -38,6 +38,16 @@ on:
         required: false
         type: string
         default: ''
+      include-ubuntu-22:
+        description: 'Build Ubuntu 22.04 artifacts.'
+        required: false
+        type: boolean
+        default: true
+      include-ubuntu-24:
+        description: 'Build Ubuntu 24.04 artifacts.'
+        required: false
+        type: boolean
+        default: true
       include-macos:
         description: 'Build macOS artifacts too.'
         required: false
@@ -73,9 +83,15 @@ jobs:
 
           case "${{ matrix.platform }}" in
             ubuntu_jammy_x86_64)
+              if [ "${{ inputs['include-ubuntu-22'] }}" != "true" ]; then
+                enabled=false
+              fi
               download_url="${{ inputs['ubuntu-22-download-url'] || inputs['swift-download-url'] }}"
               ;;
             ubuntu_noble_x86_64)
+              if [ "${{ inputs['include-ubuntu-24'] }}" != "true" ]; then
+                enabled=false
+              fi
               download_url="${{ inputs['ubuntu-24-download-url'] || inputs['swift-download-url'] }}"
               ;;
             macos_universal)
