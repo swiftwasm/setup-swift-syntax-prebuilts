@@ -52,5 +52,5 @@ outputs:
     description: 'Where artifacts came from: github-cache, github-release, local-build, or none'
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'
