@@ -60178,6 +60178,32 @@ const fs_1 = __nccwpck_require__(79896);
 const os_1 = __nccwpck_require__(70857);
 const path_1 = __nccwpck_require__(16928);
 const crypto_1 = __nccwpck_require__(76982);
+function findReleaseBuildDir(repoDir) {
+    const buildRoot = (0, path_1.join)(repoDir, ".build");
+    const candidates = [];
+    function visit(dir) {
+        for (const entry of (0, fs_1.readdirSync)(dir)) {
+            const path = (0, path_1.join)(dir, entry);
+            if (!(0, fs_1.statSync)(path).isDirectory())
+                continue;
+            if ((0, fs_1.existsSync)((0, path_1.join)(path, "libMacroSupport.a")) &&
+                (0, fs_1.existsSync)((0, path_1.join)(path, "Modules"))) {
+                candidates.push(path);
+            }
+            visit(path);
+        }
+    }
+    visit(buildRoot);
+    if (candidates.length === 0) {
+        throw new Error(`Could not find MacroSupport build artifacts under ${buildRoot}`);
+    }
+    candidates.sort((a, b) => {
+        const aRelease = a.endsWith("/release") ? 0 : 1;
+        const bRelease = b.endsWith("/release") ? 0 : 1;
+        return aRelease - bRelease || a.localeCompare(b);
+    });
+    return candidates[0];
+}
 async function buildPrebuilt(syntaxVersion, compilerTag, hostPlatform, prebuiltsDir) {
     const workdir = (0, fs_1.mkdtempSync)((0, path_1.join)((0, os_1.tmpdir)(), "swift-syntax-"));
     const repoDir = (0, path_1.join)(workdir, "swift-syntax");
@@ -60219,7 +60245,8 @@ package.products += [
     core.endGroup();
     // 4. Stage lib/ and Modules/
     core.info("Staging build artifacts...");
-    const buildDir = (0, path_1.join)(repoDir, ".build", "release");
+    const buildDir = findReleaseBuildDir(repoDir);
+    core.info(`Using build artifacts from ${buildDir}`);
     (0, fs_1.mkdirSync)((0, path_1.join)(stageDir, "lib"), { recursive: true });
     (0, fs_1.cpSync)((0, path_1.join)(buildDir, "libMacroSupport.a"), (0, path_1.join)(stageDir, "lib", "libMacroSupport.a"));
     // Copy Modules directory (contains .swiftmodule files)

@@ -22286,6 +22286,32 @@ function exec(command, options) {
 function execCapture(command, options) {
     return (0, child_process_1.execSync)(command, { encoding: "utf-8", ...options }).trim();
 }
+function findReleaseBuildDir(repoDir) {
+    const buildRoot = (0, path_1.join)(repoDir, ".build");
+    const candidates = [];
+    function visit(dir) {
+        for (const entry of (0, fs_1.readdirSync)(dir)) {
+            const path = (0, path_1.join)(dir, entry);
+            if (!(0, fs_1.statSync)(path).isDirectory())
+                continue;
+            if ((0, fs_1.existsSync)((0, path_1.join)(path, "libMacroSupport.a")) &&
+                (0, fs_1.existsSync)((0, path_1.join)(path, "Modules"))) {
+                candidates.push(path);
+            }
+            visit(path);
+        }
+    }
+    visit(buildRoot);
+    if (candidates.length === 0) {
+        throw new Error(`Could not find MacroSupport build artifacts under ${buildRoot}`);
+    }
+    candidates.sort((a, b) => {
+        const aRelease = a.endsWith("/release") ? 0 : 1;
+        const bRelease = b.endsWith("/release") ? 0 : 1;
+        return aRelease - bRelease || a.localeCompare(b);
+    });
+    return candidates[0];
+}
 async function buildPrebuilt(syntaxVersion, compilerTag, platform, outputDir) {
     const workdir = (0, fs_1.mkdtempSync)((0, path_1.join)((0, os_1.tmpdir)(), "swift-syntax-build-"));
     const repoDir = (0, path_1.join)(workdir, "swift-syntax");
@@ -22312,7 +22338,8 @@ package.products += [
     });
     // 4. Stage artifacts
     console.error("Staging artifacts...");
-    const buildDir = (0, path_1.join)(repoDir, ".build", "release");
+    const buildDir = findReleaseBuildDir(repoDir);
+    console.error(`Using build artifacts from ${buildDir}`);
     (0, fs_1.mkdirSync)((0, path_1.join)(stageDir, "lib"), { recursive: true });
     (0, fs_1.cpSync)((0, path_1.join)(buildDir, "libMacroSupport.a"), (0, path_1.join)(stageDir, "lib", "libMacroSupport.a"));
     (0, fs_1.cpSync)((0, path_1.join)(buildDir, "Modules"), (0, path_1.join)(stageDir, "Modules"), {

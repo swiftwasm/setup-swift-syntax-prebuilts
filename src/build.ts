@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   appendFileSync,
   cpSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -16,6 +17,43 @@ import { createHash } from "crypto";
 export interface BuildResult {
   checksum: string;
   artifactPath: string;
+}
+
+function findReleaseBuildDir(repoDir: string): string {
+  const buildRoot = join(repoDir, ".build");
+  const candidates: string[] = [];
+
+  function visit(dir: string): void {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (!statSync(path).isDirectory()) continue;
+
+      if (
+        existsSync(join(path, "libMacroSupport.a")) &&
+        existsSync(join(path, "Modules"))
+      ) {
+        candidates.push(path);
+      }
+
+      visit(path);
+    }
+  }
+
+  visit(buildRoot);
+
+  if (candidates.length === 0) {
+    throw new Error(
+      `Could not find MacroSupport build artifacts under ${buildRoot}`
+    );
+  }
+
+  candidates.sort((a, b) => {
+    const aRelease = a.endsWith("/release") ? 0 : 1;
+    const bRelease = b.endsWith("/release") ? 0 : 1;
+    return aRelease - bRelease || a.localeCompare(b);
+  });
+
+  return candidates[0];
 }
 
 export async function buildPrebuilt(
@@ -73,7 +111,8 @@ package.products += [
 
   // 4. Stage lib/ and Modules/
   core.info("Staging build artifacts...");
-  const buildDir = join(repoDir, ".build", "release");
+  const buildDir = findReleaseBuildDir(repoDir);
+  core.info(`Using build artifacts from ${buildDir}`);
 
   mkdirSync(join(stageDir, "lib"), { recursive: true });
   cpSync(

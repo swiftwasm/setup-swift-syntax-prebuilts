@@ -26,6 +26,8 @@ import {
   readFileSync,
   writeFileSync,
   existsSync,
+  readdirSync,
+  statSync,
 } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
@@ -87,6 +89,43 @@ function execCapture(command: string, options?: { cwd?: string }): string {
   return execSync(command, { encoding: "utf-8", ...options }).trim();
 }
 
+function findReleaseBuildDir(repoDir: string): string {
+  const buildRoot = join(repoDir, ".build");
+  const candidates: string[] = [];
+
+  function visit(dir: string): void {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (!statSync(path).isDirectory()) continue;
+
+      if (
+        existsSync(join(path, "libMacroSupport.a")) &&
+        existsSync(join(path, "Modules"))
+      ) {
+        candidates.push(path);
+      }
+
+      visit(path);
+    }
+  }
+
+  visit(buildRoot);
+
+  if (candidates.length === 0) {
+    throw new Error(
+      `Could not find MacroSupport build artifacts under ${buildRoot}`
+    );
+  }
+
+  candidates.sort((a, b) => {
+    const aRelease = a.endsWith("/release") ? 0 : 1;
+    const bRelease = b.endsWith("/release") ? 0 : 1;
+    return aRelease - bRelease || a.localeCompare(b);
+  });
+
+  return candidates[0];
+}
+
 async function buildPrebuilt(
   syntaxVersion: string,
   compilerTag: string,
@@ -125,7 +164,8 @@ package.products += [
 
   // 4. Stage artifacts
   console.error("Staging artifacts...");
-  const buildDir = join(repoDir, ".build", "release");
+  const buildDir = findReleaseBuildDir(repoDir);
+  console.error(`Using build artifacts from ${buildDir}`);
 
   mkdirSync(join(stageDir, "lib"), { recursive: true });
   cpSync(
